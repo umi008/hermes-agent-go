@@ -59,7 +59,9 @@ type Server struct {
 	Transport string
 
 	ConnectTimeout, CallTimeout time.Duration
-	filter                      filter
+	// Include, when non-nil, is the only tools registered (an empty list
+	// registers none) and wins over Exclude. Entries are names or globs.
+	Include, Exclude []string
 
 	// transport overrides the dialed transport in tests.
 	transport mcp.Transport
@@ -146,7 +148,7 @@ func dial(ctx context.Context, s Server, o Options) (*conn, error) {
 			_ = session.Close()
 			return nil, fmt.Errorf("list tools: %w", err)
 		}
-		if s.filter.allows(tool.Name) {
+		if (filter{include: s.Include, includeSet: s.Include != nil, exclude: s.Exclude}).allows(tool.Name) {
 			c.tools = append(c.tools, tool)
 		}
 	}

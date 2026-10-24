@@ -96,15 +96,15 @@ func TestToolsRegisterAndCall(t *testing.T) {
 }
 
 func TestFilterIncludeExclude(t *testing.T) {
-	m := connectMemory(t, Server{Name: "s", filter: filter{exclude: []string{"b*"}}})
+	m := connectMemory(t, Server{Name: "s", Exclude: []string{"b*"}})
 	if ts := byName(m.Tools()); len(ts) != 2 || ts["mcp__s__boom"].Name != "" {
 		t.Fatalf("exclude: %v", ts)
 	}
-	m = connectMemory(t, Server{Name: "s", filter: filter{includeSet: true, include: []string{"echo"}, exclude: []string{"echo"}}})
+	m = connectMemory(t, Server{Name: "s", Include: []string{"echo"}, Exclude: []string{"echo"}})
 	if ts := byName(m.Tools()); len(ts) != 1 || ts["mcp__s__echo"].Name == "" {
 		t.Fatalf("include: %v", ts)
 	}
-	m = connectMemory(t, Server{Name: "s", filter: filter{includeSet: true}})
+	m = connectMemory(t, Server{Name: "s", Include: []string{}})
 	if ts := m.Tools(); len(ts) != 0 {
 		t.Fatalf("empty include: %v", ts)
 	}

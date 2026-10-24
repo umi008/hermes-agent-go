@@ -14,6 +14,7 @@ import (
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
 	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 	"github.com/umi008/hermes-agent-go/internal/tools/files"
+	"github.com/umi008/hermes-agent-go/internal/tools/mcpclient"
 	"github.com/umi008/hermes-agent-go/internal/tools/memory"
 	"github.com/umi008/hermes-agent-go/internal/tools/sessionsearch"
 	"github.com/umi008/hermes-agent-go/internal/tools/terminal"
@@ -39,7 +40,7 @@ type toolDeps struct {
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
-// terminal backend and must run even on error paths after success.
+// terminal backend and MCP sessions and must run even on error paths after success.
 func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error) {
 	det, err := approval.NewDetector(d.homeDir, d.hermes)
 	if err != nil {
@@ -96,6 +97,17 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 		APIKey: key, BaseURL: baseURL,
 		CacheDir: filepath.Join(d.hermes, "cache", "web"), Logger: d.logger,
 	}).Tools()...)
+	if servers := mcpServers(d.cfg, d.lookup, d.logger); len(servers) > 0 {
+		mgr := mcpclient.Connect(ctx, mcpclient.Options{Servers: servers, LookupEnv: d.lookup, Logger: d.logger})
+		all = append(all, mgr.Tools()...)
+		closeTerm := closeFn
+		closeFn = func() {
+			if err := mgr.Close(); err != nil {
+				d.logger.Warn("close MCP servers", "err", err)
+			}
+			closeTerm()
+		}
+	}
 
 	reg, err := tools.NewRegistry(all...)
 	if err != nil {
