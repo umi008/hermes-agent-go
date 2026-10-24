@@ -153,6 +153,9 @@ func (t *Terminal) foreground(ctx context.Context, a runArgs, dir string, timeou
 	err := cmd.Run()
 
 	output, newCwd := t.splitMarker(out.String())
+	if hp, ok := t.backend.(interface{ HostPath(string) string }); ok && newCwd != "" {
+		newCwd = hp.HostPath(newCwd)
+	}
 	res := runResult{Output: truncateOutput(stripANSI(output)), ExitCode: exitCode(err)}
 	switch {
 	case ctx.Err() != nil:
