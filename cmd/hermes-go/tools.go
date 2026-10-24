@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/config"
+	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/state"
 	"github.com/umi008/hermes-agent-go/internal/tools"
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
@@ -31,7 +32,8 @@ type toolDeps struct {
 	logger   *slog.Logger
 
 	memory    *memory.Store // nil when both stores are disabled
-	store     *state.Store  // nil when the session store is unavailable
+	skills    *skills.Catalog
+	store     *state.Store // nil when the session store is unavailable
 	sessionID string
 	profile   string
 }
@@ -75,6 +77,10 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	all = append(all, todo.New().Tools()...)
 	if d.memory != nil {
 		all = append(all, d.memory.Tool())
+	}
+	if d.skills != nil {
+		id := d.sessionID
+		all = append(all, skills.Tools(d.skills, func() string { return id })...)
 	}
 	if d.store != nil {
 		profile, id := d.profile, d.sessionID

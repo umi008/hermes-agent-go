@@ -158,10 +158,11 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 	}, env.Now, logger)
 	defer rec.close()
 	mem := openMemory(h.Dir, cfg, logger)
+	cat := openSkills(h.Dir, userHome, cfg, lookup, logger)
 
 	deps := toolDeps{
 		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
-		toolsets: f.toolsets, logger: logger, memory: mem, profile: f.profile,
+		toolsets: f.toolsets, logger: logger, memory: mem, skills: cat, profile: f.profile,
 	}
 	if rec != nil {
 		deps.store, deps.sessionID = rec.store, rec.id
@@ -192,6 +193,7 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		Platform:     "cli",
 		Now:          started,
 		ToolGuidance: guidance,
+		Skills:       skillsIndex(cat, reg, lookup),
 		Memory:       memBlocks,
 		Logger:       logger,
 	})
