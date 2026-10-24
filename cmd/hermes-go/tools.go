@@ -8,10 +8,13 @@ import (
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/config"
+	"github.com/umi008/hermes-agent-go/internal/state"
 	"github.com/umi008/hermes-agent-go/internal/tools"
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
 	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 	"github.com/umi008/hermes-agent-go/internal/tools/files"
+	"github.com/umi008/hermes-agent-go/internal/tools/memory"
+	"github.com/umi008/hermes-agent-go/internal/tools/sessionsearch"
 	"github.com/umi008/hermes-agent-go/internal/tools/terminal"
 	"github.com/umi008/hermes-agent-go/internal/tools/todo"
 	"github.com/umi008/hermes-agent-go/internal/tools/web"
@@ -26,6 +29,11 @@ type toolDeps struct {
 	cwd      string
 	toolsets string // comma-separated --toolsets filter; empty keeps all
 	logger   *slog.Logger
+
+	memory    *memory.Store // nil when both stores are disabled
+	store     *state.Store  // nil when the session store is unavailable
+	sessionID string
+	profile   string
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
@@ -65,6 +73,18 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	key, _ := d.lookup("TAVILY_API_KEY")
 	baseURL, _ := d.lookup("TAVILY_BASE_URL")
 	all = append(all, todo.New().Tools()...)
+	if d.memory != nil {
+		all = append(all, d.memory.Tool())
+	}
+	if d.store != nil {
+		profile, id := d.profile, d.sessionID
+		if profile == "" {
+			profile = "default"
+		}
+		all = append(all, sessionsearch.Tool(sessionsearch.Options{
+			Store: d.store, Current: func() string { return id }, Profile: profile,
+		}))
+	}
 	all = append(all, clarify.Tool(nil)) // single-query mode: nobody to ask
 	all = append(all, web.New(web.Options{
 		APIKey: key, BaseURL: baseURL,
@@ -122,4 +142,51 @@ func stringList(cfg *config.Config, path ...string) []string {
 		}
 	}
 	return out
+}
+
+// sessionSearchGuidance is upstream SESSION_SEARCH_GUIDANCE.
+const sessionSearchGuidance = "When the user references something from a past conversation or you suspect relevant cross-session " +
+	"context exists, use session_search to recall it before asking them to repeat themselves."
+
+func hasTool(reg *tools.Registry, name string) bool {
+	for _, s := range reg.Specs() {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// openMemory opens the Go port's memory dir. Like the session store it is
+// separate from upstream's <home>/memories, so the port never rewrites the
+// user's real notes. memory.memory_enabled and memory.user_profile_enabled
+// both false disable the tool; limits come from memory.*_char_limit.
+func openMemory(hermes string, cfg *config.Config, logger *slog.Logger) *memory.Store {
+	if isFalse(cfg, "memory", "memory_enabled") && isFalse(cfg, "memory", "user_profile_enabled") {
+		return nil
+	}
+	memLimit, _ := cfg.Int("memory", "memory_char_limit")
+	userLimit, _ := cfg.Int("memory", "user_char_limit")
+	s, err := memory.Open(filepath.Join(hermes, "hermes-go", "memories"),
+		memory.Options{MemoryLimit: memLimit, UserLimit: userLimit, Logger: logger})
+	if err != nil {
+		logger.Warn("memory unavailable", "err", err)
+		return nil
+	}
+	return s
+}
+
+func isFalse(cfg *config.Config, path ...string) bool {
+	v, ok := cfg.Get(path...)
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return !x
+	case string:
+		s := strings.ToLower(strings.TrimSpace(x))
+		return s == "false" || s == "0" || s == "no" || s == "off"
+	}
+	return false
 }

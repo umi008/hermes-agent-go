@@ -19,6 +19,8 @@ import (
 	"github.com/umi008/hermes-agent-go/internal/llm/openai"
 	"github.com/umi008/hermes-agent-go/internal/prompt"
 	"github.com/umi008/hermes-agent-go/internal/provider"
+	"github.com/umi008/hermes-agent-go/internal/state"
+	"github.com/umi008/hermes-agent-go/internal/tools/memory"
 )
 
 // Env is every process fact the CLI reads, so tests never touch the real
@@ -146,6 +148,40 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 	if err != nil {
 		return fmt.Errorf("working directory: %w", err)
 	}
+	userHome, err := env.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("user home: %w", err)
+	}
+	started := env.Now()
+	rec := openRecorder(ctx, h.Dir, state.Session{
+		ID: state.NewSessionID(started), Source: "cli", Model: ep.Model, Cwd: cwd,
+	}, env.Now, logger)
+	defer rec.close()
+	mem := openMemory(h.Dir, cfg, logger)
+
+	deps := toolDeps{
+		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
+		toolsets: f.toolsets, logger: logger, memory: mem, profile: f.profile,
+	}
+	if rec != nil {
+		deps.store, deps.sessionID = rec.store, rec.id
+	}
+	reg, closeTools, err := buildTools(ctx, deps)
+	if err != nil {
+		return err
+	}
+	defer closeTools()
+
+	var guidance, memBlocks []string
+	if hasTool(reg, "memory") {
+		guidance = append(guidance, memory.Guidance)
+	}
+	if hasTool(reg, "session_search") {
+		guidance = append(guidance, sessionSearchGuidance)
+	}
+	if mem != nil {
+		memBlocks = mem.PromptBlocks()
+	}
 	maxChars, _ := cfg.Int("context_file_max_chars")
 	sys := prompt.Build(prompt.Inputs{
 		HomeDir:      h.Dir,
@@ -154,33 +190,26 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		Model:        ep.Model,
 		Provider:     ep.Provider,
 		Platform:     "cli",
-		Now:          env.Now(),
+		Now:          started,
+		ToolGuidance: guidance,
+		Memory:       memBlocks,
 		Logger:       logger,
 	})
 	maxTurns, _ := cfg.Int("agent", "max_turns")
-	userHome, err := env.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("user home: %w", err)
-	}
-	reg, closeTools, err := buildTools(ctx, toolDeps{
-		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
-		toolsets: f.toolsets, logger: logger,
-	})
-	if err != nil {
-		return err
-	}
-	defer closeTools()
 
 	a := agent.New(agent.Options{
-		Client:   newClient(ep),
-		Tools:    reg,
-		Model:    ep.Model,
-		System:   sys.Tiers(),
-		CacheTTL: cacheTTL(cfg),
-		MaxTurns: maxTurns,
-		Logger:   logger,
+		Client:    newClient(ep),
+		Tools:     reg,
+		Model:     ep.Model,
+		System:    sys.Tiers(),
+		CacheTTL:  cacheTTL(cfg),
+		MaxTurns:  maxTurns,
+		Logger:    logger,
+		OnMessage: func(m llm.Message) { rec.message(ctx, m) },
 		OnEvent: func(e agent.Event) {
 			switch {
+			case e.Kind == agent.EventUsage:
+				rec.usage(ctx, e.Usage)
 			case e.Kind == agent.EventText:
 				_, _ = io.WriteString(env.Stdout, e.Text)
 			case e.Kind == agent.EventToolStart && f.verbose && e.ToolCall != nil:

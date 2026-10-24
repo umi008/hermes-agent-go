@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/umi008/hermes-agent-go/internal/state"
 )
 
 type fakeEnv struct {
@@ -163,5 +165,66 @@ func TestChatRunsToolCalls(t *testing.T) {
 	last, _ := msgs[len(msgs)-1].(map[string]any)
 	if last["role"] != "tool" || !strings.Contains(last["content"].(string), `"revision":1`) {
 		t.Fatalf("tool result = %v", last)
+	}
+}
+
+func TestChatRecordsSessionAndMemory(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunk := `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2}}`
+		if len(bodies) == 1 {
+			chunk = `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"memory","arguments":"{\"target\":\"user\",\"action\":\"add\",\"content\":\"Name is Uli\"}"}}]},"finish_reason":"tool_calls"}]}`
+		}
+		_, _ = io.WriteString(w, "data: "+chunk+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	f := newHome(t, "model:\n  provider: custom\n  default: tiny\n  base_url: "+srv.URL+"\n")
+	for _, q := range []string{"remember my name", "hello again"} {
+		if code := Run(context.Background(), []string{"chat", "--toolsets", "memory,session_search", "-q", q}, f.env()); code != 0 {
+			t.Fatalf("exit %d, stderr: %s", code, f.stderr.String())
+		}
+	}
+	if len(bodies) != 3 {
+		t.Fatalf("requests = %d", len(bodies))
+	}
+	// The second session's frozen prompt carries the profile and the guidance.
+	for _, want := range []string{"USER PROFILE (who the user is)", "Name is Uli", "use session_search to recall it", `"name":"memory"`, `"name":"session_search"`} {
+		if !strings.Contains(bodies[2], want) {
+			t.Fatalf("second session request lacks %q: %s", want, bodies[2])
+		}
+	}
+	hermes := f.vars["HERMES_HOME"]
+	if data, err := os.ReadFile(filepath.Join(hermes, "hermes-go", "memories", "USER.md")); err != nil || string(data) != "Name is Uli" {
+		t.Fatalf("USER.md %q %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(hermes, "memories")); !os.IsNotExist(err) {
+		t.Fatalf("upstream memories dir touched: %v", err)
+	}
+	ctx := context.Background()
+	st, err := state.Open(ctx, filepath.Join(hermes, "hermes-go", "state.db"), state.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	sessions, err := st.RecentSessions(ctx, 5, nil)
+	if err != nil || len(sessions) != 2 {
+		t.Fatalf("sessions %+v %v", sessions, err)
+	}
+	var first state.Session
+	for _, s := range sessions {
+		if s.Preview == "remember my name" {
+			first = s
+		}
+	}
+	if first.Source != "cli" || first.Model != "tiny" || first.MessageCount != 4 || first.ToolCallCount != 1 || first.EndReason != "cli_close" || first.InputTokens != 7 {
+		t.Fatalf("session %+v", first)
+	}
+	msgs, err := st.Messages(ctx, first.ID)
+	if err != nil || len(msgs) != 4 || msgs[2].ToolName != "memory" || !strings.Contains(msgs[1].ToolCalls, `"name":"memory"`) {
+		t.Fatalf("messages %+v %v", msgs, err)
 	}
 }
