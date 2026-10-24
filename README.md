@@ -4,7 +4,7 @@ A scoped Go port of [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 by Nous Research. This is a learning and portfolio project, not a replacement
 for upstream.
 
-**Status:** discovery done (V0). No Go code yet.
+**Status:** V1 Core done on `dev` (`hermes-go chat -q`), awaiting review. Next: V2 Tools.
 
 **Goals:**
 

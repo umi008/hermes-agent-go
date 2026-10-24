@@ -35,3 +35,22 @@ depends on them.
    subprotocol without the Python bootstrap. This must be resolved before M5.6.
 5. **Exact predicates.** Read the exact predicates of the deferred indexes past
    `hermes_state_common.py:861` and the trigram FTS column list.
+
+## Provisional answers adopted in V1 (2026-10-24)
+
+The owner was away, so V1 went ahead on the recommendations above. Every one
+of them is reversible.
+
+- **Owner 1 (binary name):** the binary is `hermes-go`. It resolves the home
+  exactly as upstream does. V1 only reads from it (`config.yaml`, `.env`,
+  `SOUL.md`) and never writes.
+- **Owner 3 (first provider):** both are supported.
+  - OpenAI-compatible: OpenRouter, DeepSeek, Ollama Cloud, LM Studio, and
+    `custom` for a local server.
+  - Anthropic.
+- **Owner 5 (CI timing):** a minimal CI landed in M1.1. It runs on ubuntu and
+  windows, with `-race`, a CGO-free build, and golangci-lint.
+- **Spike 3 (SDK choice):** the Anthropic side uses `anthropic-sdk-go`
+  v1.84.0, with its APIs checked against the SDK source. The
+  OpenAI-compatible side uses plain `net/http` instead of `openai-go`. The MCP
+  SDK is still open until V4.

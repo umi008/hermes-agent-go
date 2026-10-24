@@ -20,15 +20,15 @@ Assumptions (owner did not answer OPEN_QUESTIONS yet, all reversible): binary `h
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 CI + lint config | — | inline | todo | |
-| T2 internal/home | S1 | inline | todo | |
-| T3 internal/config + env | S2, S3 | inline | todo | |
-| T4 internal/llm types + providers | S4 | inline | todo | |
-| T5 OpenAI-compatible client | S5 | inline | todo | |
-| T6 Anthropic client + caching | S5 | inline | todo | |
-| T7 internal/prompt | S6 | inline | todo | |
-| T8 internal/agent loop | S7 | inline | todo | |
-| T9 cmd/hermes-go chat | S8 | inline | todo | |
+| T1 CI + lint config | — | inline | done | d4917f8 |
+| T2 internal/home | S1 | inline | done | 379cd05 |
+| T3 internal/config + env | S2, S3 | inline | done | 8a5aa92 |
+| T4 internal/llm types + providers | S4 | inline | done | 7c10ab4 |
+| T5 OpenAI-compatible client | S5 | inline | done | a670ea1 |
+| T6 Anthropic client + caching | S5 | inline | done | e099a1f |
+| T7 internal/prompt | S6 | inline | done | abf74d3 |
+| T8 internal/agent loop | S7 | inline | done | 554f335 |
+| T9 cmd/hermes-go chat | S8 | inline | done | 69a8205 |
 
 Route evidence: one writer (the parent) works sequentially; units depend on each other, so no parallel writer reason applies.
 
@@ -37,3 +37,4 @@ Route evidence: one writer (the parent) works sequentially; units depend on each
 - L1 (2026-10-24, owner): "Hablamos espanol aunque el prompt esté en inglés, puedes pensar en inglés, queremos hacer un rewrite completo de hermes pero en go, entonces sé que es algo grande, por lo que partiremos de lo inicial, y poco a poco iremos metiendo, igual esperemos que la comunidad crezca o algo así, entonces vas documentando absolutamente todo de lo q nos va faltando y eso, pero dale, tienes full access, creas una nueva carpeta, e inicializas repo de mi github, creas rama dev y main, y vas pusheando, puedes instalar go y lo que falte para el desarrollo."
 - L2 (2026-10-24, owner): "ya hice el cd, dale continua y rifate, me voy del pc unas horas"
 - L3 Decision: Anthropic uses the official `anthropic-sdk-go` (skill guidance: official SDK over raw HTTP); OpenAI-compatible uses plain `net/http` because it must speak to many non-OpenAI servers (OpenRouter, Ollama, LM Studio) with loose schemas.
+- L4 Verification (2026-10-24): all nine tasks are done. Every commit passed gofmt, go vet, golangci-lint (0 issues), and `go test -race ./...`. The CLI end-to-end test drives `hermes-go chat -q` against an httptest OpenAI-compatible server inside an isolated temp `HERMES_HOME`, and checks that the system prompt carries the identity, AGENTS.md, Model, Provider, and Platform. The deliberate gaps are listed in docs/PROGRESS.md under "Known V1 gaps".

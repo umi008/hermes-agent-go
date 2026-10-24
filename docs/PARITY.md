@@ -18,21 +18,21 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| Hermes home resolution (`HERMES_HOME`, `LOCALAPPDATA` on Windows, `HERMES_DATA_DIR_SUFFIX`) | planned | `hermes_constants.py:51-58,188-246` |
-| Profiles (`profiles/<name>`, `active_profile`, name regex) | planned | `hermes_cli/profiles.py`, `hermes_constants.py:93-101,395` |
-| `config.yaml` load and deep-merge, unknown keys preserved | planned | `hermes_cli/config.py:1487,2088,2476` |
+| Hermes home resolution (`HERMES_HOME`, `LOCALAPPDATA` on Windows, `HERMES_DATA_DIR_SUFFIX`) | done | `hermes_constants.py:51-58,188-246` |
+| Profiles (`profiles/<name>`, `active_profile`, name regex) | done | `hermes_cli/profiles.py`, `hermes_constants.py:93-101,395` |
+| `config.yaml` load and deep-merge, unknown keys preserved | done | `hermes_cli/config.py:1487,2088,2476` |
 | Config migrations | out (read v ≥ 12, warn) | `hermes_cli/config_migrations.py` |
-| `.env` secrets | planned | `agent/secret_scope.py:294-309` |
-| Provider resolution (`model`, `providers`, `fallback_providers`) | planned (subset) | `plugins/model-providers/`, `agent/agent_init*.py` |
-| OpenAI chat completions client, streaming | planned | `agent/transports/chat_completions.py` |
-| Anthropic Messages client, streaming | planned | `agent/transports/anthropic.py`, `agent/anthropic_adapter.py` |
-| Anthropic prompt caching (4 breakpoints, TTL) | planned | `agent/prompt_caching.py` |
+| `.env` secrets | done | `agent/secret_scope.py:294-309` |
+| Provider resolution (`model`, `providers`, `fallback_providers`) | partial (no `fallback_providers`) | `plugins/model-providers/`, `agent/agent_init*.py` |
+| OpenAI chat completions client, streaming | done | `agent/transports/chat_completions.py` |
+| Anthropic Messages client, streaming | done | `agent/transports/anthropic.py`, `agent/anthropic_adapter.py` |
+| Anthropic prompt caching (4 breakpoints, TTL) | done | `agent/prompt_caching.py` |
 | OpenAI Responses / Codex, Bedrock, Vertex, Gemini native | out | `agent/transports/codex.py`, `bedrock.py`, … |
 | Credential pool, OAuth providers | out | `agent/credential_pool*.py`, `hermes_cli/auth.py` |
-| System prompt builder (3 tiers, SOUL.md, context files) | planned | `agent/system_prompt.py:736`, `agent/prompt_builder.py:1679` |
-| Agent loop: iterations, retries, interrupt, steer | planned | `agent/conversation_loop.py`, `agent/interrupt_control.py` |
-| Observable tool-call event stream | planned | `agent/stream_delivery.py` |
-| `<think>` scrubbing across deltas | planned | `agent/conversation_loop.py:354-361` |
+| System prompt builder (3 tiers, SOUL.md, context files) | done | `agent/system_prompt.py:736`, `agent/prompt_builder.py:1679` |
+| Agent loop: iterations, retries, interrupt, steer | done | `agent/conversation_loop.py`, `agent/interrupt_control.py` |
+| Observable tool-call event stream | done | `agent/stream_delivery.py` |
+| `<think>` scrubbing across deltas | done | `agent/conversation_loop.py:354-361` |
 | Auxiliary side-LLM routing | later | `agent/auxiliary_client.py` |
 
 ## Tools (V2)

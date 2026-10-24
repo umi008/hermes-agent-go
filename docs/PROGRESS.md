@@ -42,10 +42,36 @@ compatibility with the Hermes home where practical.
   - [ROADMAP.md](ROADMAP.md)
   - [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)
 
+- **V1 Core (2026-10-24, on `dev`, awaiting owner review).** Feature doc:
+  [odd/tasks/v1-core.md](../odd/tasks/v1-core.md).
+  - `internal/home`: home and profile resolution.
+  - `internal/config`: `config.yaml` deep merge, `${VAR}` refs, and the `.env` overlay.
+  - `internal/provider`: the provider auto ladder and named `providers:` entries.
+  - `internal/llm`: neutral types, plus the `<think>` scrubber.
+  - `internal/llm/openai`: an OpenAI-compatible SSE client.
+  - `internal/llm/anthropic`: the official SDK, with 4 cache breakpoints.
+  - `internal/prompt`: 3 tiers, `SOUL.md`, context files, and truncation.
+  - `internal/agent`: the loop, with retries, steering, and parallel tools.
+  - `cmd/hermes-go`: `hermes-go chat -q "..." [-p profile] [-m model] [--provider name] [-v]`.
+
+## Known V1 gaps (deliberate, tracked)
+
+- `fallback_providers` is not wired. Only the primary provider is used.
+- There is no Retry-After honoring. Backoff is upstream's jittered exponential (5s base, 120s cap).
+- There is no `max_tokens` continuation. A truncated reply is returned as is.
+- The timestamp line covers the same-day form only. The "Today's date" rebuild line and the Session ID trailer are not ported.
+- Context-file prompt-injection scanning (`_scan_context_content`) is not ported.
+- The dynamic context-file cap (6% of the context window) is not ported. Only the fixed 20,000 chars, or `context_file_max_chars`, applies.
+- Tool guidance, help guidance, skills index, memory, and runtime hints in the prompt arrive with V2–V4.
+
 ## Next
 
-- The owner answers the questions in OPEN_QUESTIONS.md.
-- Then start M1.1, Home + config (see ROADMAP.md).
+- The owner reviews V1 and approves the merge of `dev` into `main`.
+- Then V2 Tools (see ROADMAP.md).
+
+## Local dev notes
+
+- `go test -race` needs cgo. On Windows, WinLibs MinGW is installed (`winget install BrechtSanders.WinLibs.POSIX.UCRT`). Run with `CGO_ENABLED=1` and its `mingw64/bin` on PATH. Release builds stay `CGO_ENABLED=0`.
 
 ## Decisions
 
@@ -55,6 +81,10 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | No config migrations in Go; read `_config_version` ≥ 12 and warn when the stamp is old | Upstream owns migrations, so duplicating them risks divergence. |
 | 2026-10-24 | Preserve unknown YAML keys, JSON keys, and DB columns on every write | Upstream evolves fast, and dropping data the Go port does not know corrupts a shared home. |
 | 2026-10-24 | Python plugin system is out of scope; extension is via skills, MCP, and shell hooks | No Python runtime in Go. |
+| 2026-10-24 | Anthropic via official `anthropic-sdk-go` (v1.84.0); OpenAI-compatible via plain `net/http` | Official SDK where one exists; the OpenAI-compatible path must tolerate loose schemas from OpenRouter, Ollama, and LM Studio. |
+| 2026-10-24 | SDK retries disabled; the agent loop owns retry policy | One retry policy for every provider, as upstream (`max_retries=0`). |
+| 2026-10-24 | An explicit base URL with no provider resolves to `custom` | Upstream's default (OpenRouter) would send a local server's traffic to the wrong key. This deviates from upstream. |
+| 2026-10-24 | V1 adopted the OPEN_QUESTIONS recommendations as assumptions: binary `hermes-go`, the same home resolution as upstream (read-only in V1), both provider families, CI in M1.1 | The owner was away. Every one of these is reversible. |
 
 ## Open questions
 
