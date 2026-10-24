@@ -30,6 +30,10 @@ type Message struct {
 	// ToolCallID and IsError are set on tool messages.
 	ToolCallID string
 	IsError    bool
+	// Native is the provider's own form of an assistant reply, kept so the
+	// same provider can replay it verbatim (Anthropic thinking blocks carry
+	// signatures that must round-trip). Other providers ignore it.
+	Native any
 }
 
 // ToolCall is a model request to run a tool.
