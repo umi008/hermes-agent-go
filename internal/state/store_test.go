@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -233,6 +235,48 @@ func TestSanitizeMatchesUpstream(t *testing.T) {
 		}
 		if r := orRelaxed(got); r != want {
 			t.Errorf("orRelaxed(%q) = %q, want %q", got, r, want)
+		}
+	}
+}
+
+// TestConcurrentAppendMessage covers the seam a chat runtime with several live
+// sessions needs: two sessions write the store from their own goroutines.
+func TestConcurrentAppendMessage(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	for _, id := range []string{"a", "b"} {
+		if err := st.CreateSession(ctx, Session{ID: id, Source: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for _, id := range []string{"a", "b"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < 50; i++ {
+				if _, err := st.AppendMessage(ctx, id, Message{Role: "user", Content: fmt.Sprintf("%s-%d", id, i)}); err != nil {
+					t.Errorf("append %s: %v", id, err)
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for _, id := range []string{"a", "b"} {
+		msgs, err := st.Messages(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 50 {
+			t.Fatalf("%s: %d messages, want 50", id, len(msgs))
 		}
 	}
 }

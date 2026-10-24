@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver, registers "sqlite"
@@ -48,7 +49,10 @@ type Store struct {
 	db       *sql.DB
 	readOnly bool
 	now      func() time.Time
-	lastTS   float64
+	// tsMu guards lastTS: several chat sessions write the store from their
+	// own goroutines, and the timestamps must stay strictly increasing.
+	tsMu   sync.Mutex
+	lastTS float64
 }
 
 // Open opens path, creating it with the upstream schema when it does not
@@ -157,8 +161,11 @@ func (s *Store) ReadOnly() bool { return s.readOnly }
 func (s *Store) Close() error { return s.db.Close() }
 
 // timestamp returns a strictly increasing unix time, as upstream keeps
-// message timestamps ordered within a process.
+// message timestamps ordered within a process. It is safe for concurrent use:
+// every chat session writes through it.
 func (s *Store) timestamp() float64 {
+	s.tsMu.Lock()
+	defer s.tsMu.Unlock()
 	ts := float64(s.now().UnixNano()) / 1e9
 	if ts <= s.lastTS {
 		ts = s.lastTS + 1e-6

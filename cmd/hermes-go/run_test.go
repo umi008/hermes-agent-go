@@ -111,7 +111,7 @@ func TestChatErrors(t *testing.T) {
 	}{
 		{"no command", nil, "", 2, "Usage: hermes-go"},
 		{"unknown command", []string{"fly"}, "", 2, `unknown command "fly"`},
-		{"empty message", []string{"chat"}, "", 1, "chat needs a message"},
+		{"empty message", []string{"chat", "-q", " "}, "", 1, "chat needs a message"},
 		{"no provider", []string{"chat", "-q", "x"}, "", 1, "no LLM provider configured"},
 		{"unknown provider", []string{"chat", "--provider", "nope", "-q", "x"}, "", 1, `unknown provider "nope"`},
 		{"missing profile", []string{"chat", "-p", "ghost", "-q", "x"}, "", 1, "ghost"},
@@ -226,5 +226,23 @@ func TestChatRecordsSessionAndMemory(t *testing.T) {
 	msgs, err := st.Messages(ctx, first.ID)
 	if err != nil || len(msgs) != 4 || msgs[2].ToolName != "memory" || !strings.Contains(msgs[1].ToolCalls, `"name":"memory"`) {
 		t.Fatalf("messages %+v %v", msgs, err)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	old := version
+	version = "1.2.3"
+	t.Cleanup(func() { version = old })
+	for _, arg := range []string{"version", "--version"} {
+		t.Run(arg, func(t *testing.T) {
+			f := newHome(t, "")
+			code := Run(context.Background(), []string{arg}, f.env())
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr: %s", code, f.stderr.String())
+			}
+			if got := f.stdout.String(); got != "hermes-go 1.2.3\n" {
+				t.Errorf("stdout = %q, want %q", got, "hermes-go 1.2.3\n")
+			}
+		})
 	}
 }

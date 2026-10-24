@@ -53,11 +53,20 @@ The stdio `tui_gateway.entry` path is still used by the desktop e2e harness
 - **Payloads:** the `gateway.ready` and startup-failure payloads carry a `python` field (`gatewayClient.ts:248,405`).
 - **Slash commands:** they run in a Python `_SlashWorker`, and `command.dispatch` returns directives such as `{type: "skill"}`.
 
-## Options for the Go port (decision deferred to V5)
+## Spike: the explicit-URL path needs no ticket (2026-10-24, upstream `bda3a363e9`)
+
+- With `HERMES_TUI_GATEWAY_URL` set, `start()` skips the bootstrap and calls `startAttachedGateway(attachUrl)` with **no subprotocols** (`ui-tui/src/gatewayClient.ts:734-748`). Only the bootstrap grant path passes `grant.protocols`, the ticket included (`:560-565`).
+- The wire is negotiated from the server's first frame: a `gateway.ready` event with `session_authority: true` switches the client to the canonical wire and `runtime.describe` (`gatewayClient.ts:189-193,224-233`); without it the client stays on the legacy wire. Upstream sends `{skin, change_events, heartbeat, replay_epoch, session_authority?}` (`tui_gateway/ws.py:548-553`).
+- Credentials, if any, ride in the URL query string; the client redacts it in logs (`gatewayClient.ts:70-80`).
+- Ink itself is a Node app (`ui-tui/package.json`: `start` runs `tsx src/entry.tsx`); Python is only reached through `localGatewayBootstrap.ts`, which the explicit URL skips.
+
+**Consequence:** option A works without touching upstream and without Python: `hermes-go` serves `/api/ws` on loopback and launches Ink with `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/api/ws?token=<random>`. The remaining cost is the method surface, not the handshake.
+
+## Options for the Go port (decided: A)
 
 | Option | Cost | Upstream TUI untouched? |
 |---|---|---|
-| A. Go server for `/api/ws` + `hermes-gateway-v1`. Launch Ink with `HERMES_TUI_GATEWAY_URL` pointing at Go. | Medium: canonical handshake plus about 30–40 methods. | Yes, if the explicit-URL path accepts a local Go server. **UNVERIFIED:** how the ticket is obtained without the bootstrap. |
+| A. Go server for `/api/ws` + `hermes-gateway-v1`. Launch Ink with `HERMES_TUI_GATEWAY_URL` pointing at Go. | Medium: canonical handshake plus about 30–40 methods. | Yes. Verified: the explicit URL needs no ticket (see the spike above). |
 | B. Same Go server, plus a tiny `gateway_bootstrap` replacement that prints the same grant. | Medium, plus a small shim. | Yes, but the shim still has to be Python or be spawned under `HERMES_PYTHON`. |
 | C. Native Go TUI (Bubble Tea). | High. | Not applicable. |
 
@@ -67,3 +76,10 @@ The stdio `tui_gateway.entry` path is still used by the desktop e2e harness
 - about 20–25 events: `message.*`, `tool.*`, `reasoning.delta`, `session.*`, `status.update`, `error`.
 
 A conformance test can validate Go payloads against the OpenRPC JSON schemas.
+
+## Implementation (option A, legacy wire, 2026-10-24)
+
+- `internal/tuigateway` serves `/api/ws?token=...`. `gateway.ready` carries `heartbeat: true` and no `session_authority`, so the client stays on the legacy wire.
+- The server requests are `approval` (choices `once`, `session`, `deny`) and `clarify` (one request per batch; `clarify.lock` per question, or a response frame with `answers`). Ids are `srq-<12 hex>`; a cancelled turn withdraws them with `request.cancel`.
+- `prompt.submit` with `submission_id` is refused with 4000, as upstream's legacy contract does; the client then retries with legacy delivery.
+- `hermes-go tui` launches `node --expose-gc <tui-dir>/dist/entry.js`. Build that product from an upstream checkout: install the workspace dependencies, `npm run build:ink` in `ui-tui`, then `node scripts/build/tui.mjs --source . --out <tui-dir>`.

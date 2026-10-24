@@ -34,9 +34,11 @@ type toolDeps struct {
 
 	memory    *memory.Store // nil when both stores are disabled
 	skills    *skills.Catalog
-	store     *state.Store // nil when the session store is unavailable
-	sessionID string
+	store     *state.Store  // nil when the session store is unavailable
+	sessionID func() string // the live session id; it changes on /new
 	profile   string
+	asker     clarify.Asker     // nil in single-query mode: nobody to ask
+	prompter  approval.Prompter // nil in single-query mode
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
@@ -49,6 +51,7 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	sudo, _ := d.lookup("SUDO_PASSWORD")
 	gate := approval.New(approval.Options{
 		Detector:          det,
+		Prompter:          d.prompter,
 		Allowlist:         stringList(d.cfg, "command_allowlist"),
 		Off:               d.cfg.String("approvals", "mode") == "off",
 		UnattendedApprove: d.cfg.String("approvals", "single_query_mode") == "approve",
@@ -80,19 +83,23 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 		all = append(all, d.memory.Tool())
 	}
 	if d.skills != nil {
-		id := d.sessionID
-		all = append(all, skills.Tools(d.skills, func() string { return id })...)
+		all = append(all, skills.Tools(d.skills, d.sessionID)...)
+		// Upstream hides skill_manage in single-query runs: an agent that
+		// nobody is watching should not rewrite its own instructions.
+		if d.asker != nil {
+			all = append(all, d.skills.Manage().Tool())
+		}
 	}
 	if d.store != nil {
-		profile, id := d.profile, d.sessionID
+		profile := d.profile
 		if profile == "" {
 			profile = "default"
 		}
 		all = append(all, sessionsearch.Tool(sessionsearch.Options{
-			Store: d.store, Current: func() string { return id }, Profile: profile,
+			Store: d.store, Current: d.sessionID, Profile: profile,
 		}))
 	}
-	all = append(all, clarify.Tool(nil)) // single-query mode: nobody to ask
+	all = append(all, clarify.Tool(d.asker))
 	all = append(all, web.New(web.Options{
 		APIKey: key, BaseURL: baseURL,
 		CacheDir: filepath.Join(d.hermes, "cache", "web"), Logger: d.logger,

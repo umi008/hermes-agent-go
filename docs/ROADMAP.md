@@ -40,7 +40,7 @@ as possible:
 | M5.3 | Cron | `jobs.json` round-trip, scheduler (at-most-once, tick lock), output files | M3.1 | 2 |
 | M5.4 | Gateway + Telegram | Gateway core (sessions per chat, approvals over chat); Telegram adapter | M3.x | 3 |
 | M5.5 | Discord | Discord adapter | M5.4 | 1–2 |
-| M5.6 | TUI backend | `hermes-gateway-v1` WebSocket server for upstream `ui-tui` (decision pending, see TUI_PROTOCOL) | M5.4 | 3–4 |
+| M5.6 | TUI backend | `hermes-gateway-v1` WebSocket server for upstream `ui-tui` (option A, legacy wire first, see TUI_PROTOCOL) | M5.4 | 3–4 |
 | M6 | Packaging | Dockerfile (distroless static), goreleaser, GitHub Actions CI (lint, race tests, release) | any | 1–2 |
 
 **Total:** about 37–48 sessions.

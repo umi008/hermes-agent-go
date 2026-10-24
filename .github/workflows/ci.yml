@@ -35,3 +35,14 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.15.0
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build image
+        run: docker build --build-arg VERSION=ci -t hermes-go:ci .
+      - name: smoke
+        run: |
+          test "$(docker run --rm hermes-go:ci version)" = "hermes-go ci"
+          docker run --rm hermes-go:ci cron list
+          docker run --rm hermes-go:ci cron add --schedule 30m --prompt smoke

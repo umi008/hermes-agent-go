@@ -16,8 +16,8 @@ depends on them.
 3. **First provider to support.** Options are OpenRouter (OpenAI-compatible),
    the Anthropic API directly, or a local Ollama or LM Studio. This decides the
    first end-to-end target in M1.4.
-4. **TUI strategy.** The options are in TUI_PROTOCOL: (A) explicit URL, (B) a
-   bootstrap shim, or (C) a native Go TUI. Deciding is only needed before M5.6.
+4. **TUI strategy.** Decided 2026-10-24: option A, the explicit URL, so the
+   upstream TUI runs unmodified (see TUI_PROTOCOL).
 5. **CI timing.** Should a minimal CI workflow land in M1.1, before V6?
 
 ## Spikes
@@ -31,8 +31,8 @@ depends on them.
 3. **Go SDK versions.** Verify with Context7 which Go SDKs are current before
    M1.2 and M4.2: the official MCP Go SDK, plus the `anthropic-sdk-go` and
    `openai-go` SDKs, or plain `net/http`.
-4. **TUI handshake.** Confirm how `HERMES_TUI_GATEWAY_URL` obtains the ticket
-   subprotocol without the Python bootstrap. This must be resolved before M5.6.
+4. **TUI handshake.** Resolved 2026-10-24: the explicit URL sends no ticket
+   subprotocol; see TUI_PROTOCOL, "Spike".
 5. **Exact predicates.** Read the exact predicates of the deferred indexes past
    `hermes_state_common.py:861` and the trigram FTS column list.
 
