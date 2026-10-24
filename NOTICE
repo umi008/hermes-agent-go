@@ -1,0 +1,13 @@
+hermes-agent-go
+Copyright (c) 2026 umi008
+
+This project is an independent, scoped Go port of Hermes Agent.
+
+Hermes Agent
+Copyright (c) 2025 Nous Research
+https://github.com/NousResearch/hermes-agent
+Licensed under the MIT License.
+
+Design, on-disk formats, and behavior are derived from the upstream Python
+implementation (reference commit bda3a363e9695e3f63fce4a7ca85ba17b5fecb61,
+2026-10-24). This project is not affiliated with or endorsed by Nous Research.
