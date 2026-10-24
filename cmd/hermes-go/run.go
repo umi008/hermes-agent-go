@@ -60,8 +60,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 }
 
 type chatFlags struct {
-	query, profile, model, provider string
-	verbose                         bool
+	query, profile, model, provider, toolsets string
+	verbose                                   bool
 }
 
 func parseChat(args []string, stderr io.Writer) (chatFlags, error) {
@@ -78,6 +78,7 @@ func parseChat(args []string, stderr io.Writer) (chatFlags, error) {
 		fs.StringVar(&f.model, name, "", "model override")
 	}
 	fs.StringVar(&f.provider, "provider", "", "provider override: "+strings.Join(provider.Names(), ", "))
+	fs.StringVar(&f.toolsets, "toolsets", "", "comma-separated toolsets to enable (default all)")
 	fs.BoolVar(&f.verbose, "v", false, "log debug output to stderr")
 	if err := fs.Parse(args); err != nil {
 		return f, err
@@ -157,17 +158,33 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		Logger:       logger,
 	})
 	maxTurns, _ := cfg.Int("agent", "max_turns")
+	userHome, err := env.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("user home: %w", err)
+	}
+	reg, closeTools, err := buildTools(ctx, toolDeps{
+		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
+		toolsets: f.toolsets, logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	defer closeTools()
 
 	a := agent.New(agent.Options{
 		Client:   newClient(ep),
+		Tools:    reg,
 		Model:    ep.Model,
 		System:   sys.Tiers(),
 		CacheTTL: cacheTTL(cfg),
 		MaxTurns: maxTurns,
 		Logger:   logger,
 		OnEvent: func(e agent.Event) {
-			if e.Kind == agent.EventText {
+			switch {
+			case e.Kind == agent.EventText:
 				_, _ = io.WriteString(env.Stdout, e.Text)
+			case e.Kind == agent.EventToolStart && f.verbose && e.ToolCall != nil:
+				_, _ = fmt.Fprintf(env.Stderr, "[tool] %s %s\n", e.ToolCall.Name, e.ToolCall.Arguments)
 			}
 		},
 	})

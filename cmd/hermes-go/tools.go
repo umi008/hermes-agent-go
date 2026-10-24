@@ -1,0 +1,125 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"strings"
+
+	"github.com/umi008/hermes-agent-go/internal/config"
+	"github.com/umi008/hermes-agent-go/internal/tools"
+	"github.com/umi008/hermes-agent-go/internal/tools/approval"
+	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
+	"github.com/umi008/hermes-agent-go/internal/tools/files"
+	"github.com/umi008/hermes-agent-go/internal/tools/terminal"
+	"github.com/umi008/hermes-agent-go/internal/tools/todo"
+	"github.com/umi008/hermes-agent-go/internal/tools/web"
+)
+
+// toolDeps are the inputs the tool registry needs from the CLI.
+type toolDeps struct {
+	cfg      *config.Config
+	lookup   config.LookupFunc
+	homeDir  string // the user's home directory
+	hermes   string // the Hermes home
+	cwd      string
+	toolsets string // comma-separated --toolsets filter; empty keeps all
+	logger   *slog.Logger
+}
+
+// buildTools assembles the V2 tools. The returned close releases the
+// terminal backend and must run even on error paths after success.
+func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error) {
+	det, err := approval.NewDetector(d.homeDir, d.hermes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("approval patterns: %w", err)
+	}
+	sudo, _ := d.lookup("SUDO_PASSWORD")
+	gate := approval.New(approval.Options{
+		Detector:          det,
+		Allowlist:         stringList(d.cfg, "command_allowlist"),
+		Off:               d.cfg.String("approvals", "mode") == "off",
+		UnattendedApprove: d.cfg.String("approvals", "single_query_mode") == "approve",
+		SudoPassword:      sudo != "",
+		Logger:            d.logger,
+	})
+
+	var all []tools.Tool
+	closeFn := func() {}
+	backend, err := newBackend(ctx, d)
+	if err != nil {
+		d.logger.Warn("terminal tools disabled", "err", err)
+		cwd := d.cwd
+		all = append(all, files.New(func() string { return cwd }, d.homeDir).Tools()...)
+	} else {
+		term := terminal.New(backend, d.cwd, gate.Check)
+		closeFn = func() {
+			if err := term.Close(); err != nil {
+				d.logger.Warn("close terminal", "err", err)
+			}
+		}
+		all = append(all, term.Tools()...)
+		all = append(all, files.New(term.Cwd, d.homeDir).Tools()...)
+	}
+	key, _ := d.lookup("TAVILY_API_KEY")
+	baseURL, _ := d.lookup("TAVILY_BASE_URL")
+	all = append(all, todo.New().Tools()...)
+	all = append(all, clarify.Tool(nil)) // single-query mode: nobody to ask
+	all = append(all, web.New(web.Options{
+		APIKey: key, BaseURL: baseURL,
+		CacheDir: filepath.Join(d.hermes, "cache", "web"), Logger: d.logger,
+	}).Tools()...)
+
+	reg, err := tools.NewRegistry(all...)
+	if err != nil {
+		closeFn()
+		return nil, nil, err
+	}
+	if d.toolsets != "" {
+		var sets []string
+		for _, s := range strings.Split(d.toolsets, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				sets = append(sets, s)
+			}
+		}
+		reg = reg.Select(sets)
+	}
+	return reg, closeFn, nil
+}
+
+// newBackend picks terminal.backend: local (default) or docker.
+func newBackend(ctx context.Context, d toolDeps) (terminal.Backend, error) {
+	switch b := d.cfg.String("terminal", "backend"); b {
+	case "", "local":
+		return terminal.NewLocal()
+	case "docker":
+		o := terminal.DockerOptions{
+			Image:  d.cfg.String("terminal", "docker_image"),
+			Memory: d.cfg.String("terminal", "docker_memory"),
+			CPUs:   d.cfg.String("terminal", "docker_cpus"),
+		}
+		if v, ok := d.cfg.Get("terminal", "docker_network"); ok && v == true {
+			o.Network = true
+		}
+		if v, ok := d.cfg.Get("terminal", "docker_mount_cwd_to_workspace"); ok && v == true {
+			o.MountDir = d.cwd
+		}
+		return terminal.NewDocker(ctx, o)
+	default:
+		return nil, fmt.Errorf("terminal.backend %q is not supported (local, docker)", b)
+	}
+}
+
+// stringList reads a YAML list of strings, skipping non-strings.
+func stringList(cfg *config.Config, path ...string) []string {
+	v, _ := cfg.Get(path...)
+	items, _ := v.([]any)
+	var out []string
+	for _, it := range items {
+		if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}

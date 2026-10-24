@@ -124,3 +124,44 @@ func TestChatErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestChatRunsToolCalls(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunks := []string{`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`}
+		if len(bodies) == 1 {
+			chunks = []string{`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"todo_list","arguments":"{\"todos\":[{\"id\":\"1\",\"content\":\"plan\",\"status\":\"pending\"}]}"}}]},"finish_reason":"tool_calls"}]}`}
+		}
+		for _, c := range chunks {
+			_, _ = io.WriteString(w, "data: "+c+"\n\n")
+		}
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	f := newHome(t, "model:\n  provider: custom\n  default: tiny\n  base_url: "+srv.URL+"\n")
+	code := Run(context.Background(), []string{"chat", "--toolsets", "todo", "-v", "-q", "plan it"}, f.env())
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, f.stderr.String())
+	}
+	if f.stdout.String() != "done\n" || !strings.Contains(f.stderr.String(), "[tool] todo_list") {
+		t.Fatalf("stdout %q stderr %s", f.stdout.String(), f.stderr.String())
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("requests = %d", len(bodies))
+	}
+	specs, _ := bodies[0]["tools"].([]any)
+	if len(specs) != 1 {
+		t.Fatalf("tools = %v", specs)
+	}
+	msgs, _ := bodies[1]["messages"].([]any)
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	if last["role"] != "tool" || !strings.Contains(last["content"].(string), `"revision":1`) {
+		t.Fatalf("tool result = %v", last)
+	}
+}
