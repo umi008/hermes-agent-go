@@ -1,0 +1,571 @@
+{
+ "list": [
+  {
+   "category": null,
+   "out": {
+    "success": true,
+    "skills": [
+     {
+      "name": "notes",
+      "description": "Take notes in a top-level skill.",
+      "category": null
+     },
+     {
+      "name": "code-review",
+      "description": "Review a change for bugs, tests and naming.",
+      "category": "coding"
+     },
+     {
+      "name": "needs-web",
+      "description": "Needs web_search.",
+      "category": "conditional"
+     },
+     {
+      "name": "dup/a/x",
+      "description": "First twin.",
+      "category": "dup"
+     },
+     {
+      "name": "dup/b/x",
+      "description": "Second twin.",
+      "category": "dup"
+     },
+     {
+      "name": "bom",
+      "description": "Saved with a BOM.",
+      "category": "misc"
+     },
+     {
+      "name": "broken",
+      "description": "[unclosed",
+      "category": "misc"
+     },
+     {
+      "name": "extra",
+      "description": "From an external dir.",
+      "category": "misc"
+     },
+     {
+      "name": "deploy",
+      "description": "Ship the build with ${HERMES_SKILL_DIR}/run.sh in session ${HERMES_SESSION_ID}.",
+      "category": "ops"
+     }
+    ],
+    "categories": [
+     "coding",
+     "conditional",
+     "dup",
+     "misc",
+     "ops"
+    ],
+    "count": 9,
+    "hint": "Use skill_view(name) to see full content, tags, and linked files"
+   }
+  },
+  {
+   "category": "coding",
+   "out": {
+    "success": true,
+    "skills": [
+     {
+      "name": "code-review",
+      "description": "Review a change for bugs, tests and naming.",
+      "category": "coding"
+     }
+    ],
+    "categories": [
+     "coding"
+    ],
+    "count": 1,
+    "hint": "Use skill_view(name) to see full content, tags, and linked files"
+   }
+  },
+  {
+   "category": "nope",
+   "out": {
+    "success": true,
+    "skills": [],
+    "categories": [],
+    "count": 0,
+    "hint": "Use skill_view(name) to see full content, tags, and linked files"
+   }
+  }
+ ],
+ "view": [
+  {
+   "name": "code-review",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "code-review",
+    "description": "Review a change for bugs, tests and naming.",
+    "tags": [
+     "review",
+     "quality"
+    ],
+    "related_skills": [
+     "testing"
+    ],
+    "content": "---\nname: code-review\ndescription: Review a change for bugs, tests and naming.\ntags: [review, quality]\nmetadata:\n  hermes:\n    related_skills: [testing]\n---\n# Code review\n\nRead the diff first. See references/checklist.md.\n",
+    "path": "coding/review/SKILL.md",
+    "skill_dir": "@HOME@/skills/coding/review",
+    "linked_files": {
+     "references": [
+      "references/checklist.md"
+     ],
+     "templates": [
+      "templates/t.yaml"
+     ],
+     "scripts": [
+      "scripts/run.sh"
+     ]
+    },
+    "usage_hint": "To view linked files, call skill_view(name, file_path) where file_path is e.g. 'references/api.md' or 'assets/config.yaml'",
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available",
+    "metadata": {
+     "hermes": {
+      "related_skills": [
+       "testing"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "coding/review",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "code-review",
+    "description": "Review a change for bugs, tests and naming.",
+    "tags": [
+     "review",
+     "quality"
+    ],
+    "related_skills": [
+     "testing"
+    ],
+    "content": "---\nname: code-review\ndescription: Review a change for bugs, tests and naming.\ntags: [review, quality]\nmetadata:\n  hermes:\n    related_skills: [testing]\n---\n# Code review\n\nRead the diff first. See references/checklist.md.\n",
+    "path": "coding/review/SKILL.md",
+    "skill_dir": "@HOME@/skills/coding/review",
+    "linked_files": {
+     "references": [
+      "references/checklist.md"
+     ],
+     "templates": [
+      "templates/t.yaml"
+     ],
+     "scripts": [
+      "scripts/run.sh"
+     ]
+    },
+    "usage_hint": "To view linked files, call skill_view(name, file_path) where file_path is e.g. 'references/api.md' or 'assets/config.yaml'",
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available",
+    "metadata": {
+     "hermes": {
+      "related_skills": [
+       "testing"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "review",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "code-review",
+    "description": "Review a change for bugs, tests and naming.",
+    "tags": [
+     "review",
+     "quality"
+    ],
+    "related_skills": [
+     "testing"
+    ],
+    "content": "---\nname: code-review\ndescription: Review a change for bugs, tests and naming.\ntags: [review, quality]\nmetadata:\n  hermes:\n    related_skills: [testing]\n---\n# Code review\n\nRead the diff first. See references/checklist.md.\n",
+    "path": "coding/review/SKILL.md",
+    "skill_dir": "@HOME@/skills/coding/review",
+    "linked_files": {
+     "references": [
+      "references/checklist.md"
+     ],
+     "templates": [
+      "templates/t.yaml"
+     ],
+     "scripts": [
+      "scripts/run.sh"
+     ]
+    },
+    "usage_hint": "To view linked files, call skill_view(name, file_path) where file_path is e.g. 'references/api.md' or 'assets/config.yaml'",
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available",
+    "metadata": {
+     "hermes": {
+      "related_skills": [
+       "testing"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "code-review",
+   "file_path": "references/checklist.md",
+   "out": {
+    "success": true,
+    "name": "code-review",
+    "file": "references/checklist.md",
+    "content": "# Checklist\n\n- tests\n",
+    "file_type": ".md"
+   }
+  },
+  {
+   "name": "code-review",
+   "file_path": "nope.md",
+   "out": {
+    "success": false,
+    "error": "File 'nope.md' not found in skill 'code-review'.",
+    "available_files": {
+     "references": [
+      "references/checklist.md"
+     ],
+     "templates": [
+      "templates/t.yaml"
+     ],
+     "scripts": [
+      "scripts/run.sh"
+     ]
+    },
+    "hint": "Use one of the available file paths listed above"
+   }
+  },
+  {
+   "name": "code-review",
+   "file_path": "../x",
+   "out": {
+    "success": false,
+    "error": "Path traversal ('..') is not allowed.",
+    "hint": "Use a relative path within the skill directory"
+   }
+  },
+  {
+   "name": "code-review",
+   "file_path": "scripts/run.sh",
+   "out": {
+    "success": true,
+    "name": "code-review",
+    "file": "scripts/run.sh",
+    "content": "#!/bin/sh\necho ok\n",
+    "file_type": ".sh"
+   }
+  },
+  {
+   "name": "deploy",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "deploy",
+    "description": "",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: deploy\nrequired_environment_variables:\n  - name: DEPLOY_TOKEN\n    prompt: Deploy token\n    help: Create one in the dashboard.\n---\n# Deploy\n\nShip the build with @HOME@/skills/ops/deploy/run.sh in session sess-1.\n",
+    "path": "ops/deploy/SKILL.md",
+    "skill_dir": "@HOME@/skills/ops/deploy",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [
+     {
+      "name": "DEPLOY_TOKEN",
+      "prompt": "Deploy token",
+      "help": "Create one in the dashboard."
+     }
+    ],
+    "required_commands": [],
+    "missing_required_environment_variables": [
+     "DEPLOY_TOKEN"
+    ],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": true,
+    "setup_skipped": false,
+    "readiness_status": "setup_needed",
+    "setup_help": "Create one in the dashboard.",
+    "setup_note": "Setup needed before using this skill: missing env $DEPLOY_TOKEN. Create one in the dashboard."
+   }
+  },
+  {
+   "name": "twin",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Ambiguous skill name 'twin': use one of dup/a/x, dup/b/x. 2 different skills share this name in the same skills directory tier; refusing to guess.",
+    "matches": [
+     "@HOME@/skills/dup/a/x/SKILL.md",
+     "@HOME@/skills/dup/b/x/SKILL.md"
+    ],
+    "load_names": [
+     "dup/a/x",
+     "dup/b/x"
+    ],
+    "hint": "Pass the exact relative path instead of the bare name, or rename one of the colliding skills so each name is unique."
+   }
+  },
+  {
+   "name": "dup/a/x",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "twin",
+    "description": "First twin.",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: twin\ndescription: First twin.\n---\nA\n",
+    "path": "dup/a/x/SKILL.md",
+    "skill_dir": "@HOME@/skills/dup/a/x",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "mac-only",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Skill 'mac-only' is not supported on this platform.",
+    "readiness_status": "unsupported"
+   }
+  },
+  {
+   "name": "disabled-one",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Skill 'disabled-one' is disabled. Enable it with `hermes skills` or inspect the files directly on disk."
+   }
+  },
+  {
+   "name": "missing",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Skill 'missing' not found.",
+    "available_skills": [
+     "notes",
+     "code-review",
+     "needs-web",
+     "dup/a/x",
+     "dup/b/x",
+     "bom",
+     "broken",
+     "extra",
+     "deploy"
+    ],
+    "hint": "Use skills_list to see all available skills"
+   }
+  },
+  {
+   "name": "/abs",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Skill name must be a relative path within the skills directory.",
+    "hint": "Use a skill name or relative path within the skills directory."
+   }
+  },
+  {
+   "name": "a/../b",
+   "file_path": null,
+   "out": {
+    "success": false,
+    "error": "Skill name cannot contain '..' path traversal components.",
+    "hint": "Use a skill name or relative path within the skills directory."
+   }
+  },
+  {
+   "name": "extra",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "extra",
+    "description": "From an external dir.",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: extra\ndescription: From an external dir.\n---\nExtra body.\n",
+    "path": "extra/SKILL.md",
+    "skill_dir": "@HOME@/ext/misc/extra",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "flat",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "flat",
+    "description": "",
+    "tags": [],
+    "related_skills": [],
+    "content": "# Flat\n\nA legacy flat skill.\n",
+    "path": "misc/flat.md",
+    "skill_dir": null,
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "broken",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "broken",
+    "description": "[unclosed",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: broken\ndescription: [unclosed\n---\nBroken body.\n",
+    "path": "misc/broken/SKILL.md",
+    "skill_dir": "@HOME@/skills/misc/broken",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "bom",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "bom",
+    "description": "Saved with a BOM.",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: bom\ndescription: Saved with a BOM.\n---\nBOM body.\n",
+    "path": "misc/bom/SKILL.md",
+    "skill_dir": "@HOME@/skills/misc/bom",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "notes",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "notes",
+    "description": "Take notes in a top-level skill.",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: notes\ndescription: 'Take notes in a top-level skill.'\n---\nNotes body.\n",
+    "path": "notes/SKILL.md",
+    "skill_dir": "@HOME@/skills/notes",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available"
+   }
+  },
+  {
+   "name": "needs-web",
+   "file_path": null,
+   "out": {
+    "success": true,
+    "name": "needs-web",
+    "description": "Needs web_search.",
+    "tags": [],
+    "related_skills": [],
+    "content": "---\nname: needs-web\ndescription: Needs web_search.\nmetadata:\n  hermes:\n    requires_tools: [web_search]\n---\n",
+    "path": "conditional/needs-web/SKILL.md",
+    "skill_dir": "@HOME@/skills/conditional/needs-web",
+    "linked_files": null,
+    "usage_hint": null,
+    "required_environment_variables": [],
+    "required_commands": [],
+    "missing_required_environment_variables": [],
+    "missing_credential_files": [],
+    "missing_required_commands": [],
+    "setup_needed": false,
+    "setup_skipped": false,
+    "readiness_status": "available",
+    "metadata": {
+     "hermes": {
+      "requires_tools": [
+       "web_search"
+      ]
+     }
+    }
+   }
+  }
+ ],
+ "index": {
+  "no_web": "## Skills\nBefore replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of loading — it is always better to have context you don't need than to miss critical steps, pitfalls, or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific commands, and proven workflows that outperform general-purpose approaches. Load the skill even if you think you could handle the task with basic tools like terminal. Skills also encode the user's preferred approach, conventions, and quality standards for tasks like code review, planning, and testing — load them even for tasks you already know how to do, because the skill defines how it should be done here.\nIf a skill has issues, fix it with skill_manage(action='patch').\nAfter difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.\n\n<available_skills>\n  coding: Coding workflows\n    - code-review: Review a change for bugs, tests and naming.\n  dup/a:\n    - dup/a/x: First twin.\n  dup/b:\n    - dup/b/x: Second twin.\n  misc:\n    - bom: Saved with a BOM.\n    - broken: [unclosed\n    - extra: From an external dir.\n  notes:\n    - notes: Take notes in a top-level skill.\n  ops:\n    - deploy\n</available_skills>\n\nOnly proceed without loading a skill if genuinely none are relevant to the task.",
+  "web": "## Skills\nBefore replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of loading — it is always better to have context you don't need than to miss critical steps, pitfalls, or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific commands, and proven workflows that outperform general-purpose approaches. Load the skill even if you think you could handle the task with basic tools like web_search or terminal. Skills also encode the user's preferred approach, conventions, and quality standards for tasks like code review, planning, and testing — load them even for tasks you already know how to do, because the skill defines how it should be done here.\nIf a skill has issues, fix it with skill_manage(action='patch').\nAfter difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.\n\n<available_skills>\n  coding: Coding workflows\n    - code-review: Review a change for bugs, tests and naming.\n  conditional:\n    - needs-web: Needs web_search.\n  dup/a:\n    - dup/a/x: First twin.\n  dup/b:\n    - dup/b/x: Second twin.\n  misc:\n    - bom: Saved with a BOM.\n    - broken: [unclosed\n    - extra: From an external dir.\n  notes:\n    - notes: Take notes in a top-level skill.\n  ops:\n    - deploy\n</available_skills>\n\nOnly proceed without loading a skill if genuinely none are relevant to the task.",
+  "oneshot": "## Skills\nScan the skills below and load one with skill_view(name) only when it carries domain knowledge you lack for THIS task (an API, a tool's commands, a project's conventions). Do not load general process skills (testing, debugging, review methodology) for work you already know how to do, and do not create or edit skills: this is a one-shot run with no later session to reuse them.\n\n<available_skills>\n  coding: Coding workflows\n    - code-review: Review a change for bugs, tests and naming.\n  dup/a:\n    - dup/a/x: First twin.\n  dup/b:\n    - dup/b/x: Second twin.\n  misc:\n    - bom: Saved with a BOM.\n    - broken: [unclosed\n    - extra: From an external dir.\n  notes:\n    - notes: Take notes in a top-level skill.\n  ops:\n    - deploy\n</available_skills>"
+ }
+}
