@@ -233,3 +233,11 @@ func hunkRange(start, n int) string {
 	}
 	return fmt.Sprintf("%d,%d", start+1, n)
 }
+
+// FindMatches exposes the patch tool's matching strategies to other tools: an
+// exact substring match first, then the line-based normalizers. The spans are
+// non-overlapping byte offsets into text, and the strategy names which matcher
+// won, so a caller can report how a patch landed.
+func FindMatches(text, needle string) ([][2]int, string) {
+	return findMatches(text, needle)
+}

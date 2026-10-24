@@ -84,6 +84,11 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	}
 	if d.skills != nil {
 		all = append(all, skills.Tools(d.skills, d.sessionID)...)
+		// Upstream hides skill_manage in single-query runs: an agent that
+		// nobody is watching should not rewrite its own instructions.
+		if d.asker != nil {
+			all = append(all, d.skills.Manage().Tool())
+		}
 	}
 	if d.store != nil {
 		profile := d.profile
