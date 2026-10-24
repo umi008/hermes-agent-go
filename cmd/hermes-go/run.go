@@ -42,6 +42,10 @@ type Env struct {
 	Interrupt <-chan struct{}
 }
 
+// version is the release version, set at build time with
+// -ldflags "-X main.version=v1.2.3". Development builds report "dev".
+var version = "dev"
+
 const usage = `Usage: hermes-go <command> [flags]
 
 Commands:
@@ -49,6 +53,7 @@ Commands:
   serve    Serve the OpenAI-compatible HTTP API
   cron     Manage and run scheduled jobs
   gateway  Serve a chat platform (Telegram, Discord)
+  version  Print the version
 
 Run "hermes-go <command> -h" for that command's flags.
 `
@@ -63,6 +68,9 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return 0
 	}
 	switch args[0] {
+	case "version", "--version":
+		_, _ = fmt.Fprintf(env.Stdout, "hermes-go %s\n", version)
+		return 0
 	case "chat":
 		return chat(ctx, args[1:], env)
 	case "serve":

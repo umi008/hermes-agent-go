@@ -228,3 +228,21 @@ func TestChatRecordsSessionAndMemory(t *testing.T) {
 		t.Fatalf("messages %+v %v", msgs, err)
 	}
 }
+
+func TestVersion(t *testing.T) {
+	old := version
+	version = "1.2.3"
+	t.Cleanup(func() { version = old })
+	for _, arg := range []string{"version", "--version"} {
+		t.Run(arg, func(t *testing.T) {
+			f := newHome(t, "")
+			code := Run(context.Background(), []string{arg}, f.env())
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr: %s", code, f.stderr.String())
+			}
+			if got := f.stdout.String(); got != "hermes-go 1.2.3\n" {
+				t.Errorf("stdout = %q, want %q", got, "hermes-go 1.2.3\n")
+			}
+		})
+	}
+}
