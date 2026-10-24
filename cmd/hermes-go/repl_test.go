@@ -331,3 +331,35 @@ func TestSingleQueryClarifyIsUnavailable(t *testing.T) {
 		t.Errorf("tool result = %s", res)
 	}
 }
+
+func TestREPLApprovesDangerousCommand(t *testing.T) {
+	tests := []struct {
+		answer, wantOut string
+		blocked         bool
+	}{
+		{"", "Denied", true},
+		{"d", "Denied", true},
+		{"o", "Allowed once", false},
+		{"session", "Allowed for this session", false},
+		{"a", "Allowed for this session", false},
+	}
+	for _, tt := range tests {
+		t.Run("answer "+tt.answer, func(t *testing.T) {
+			// git push --force is flagged; the temp cwd is no repository, so an
+			// approved run only fails.
+			srv, record := toolCallModel(t, "terminal", `{"command":"git push --force"}`)
+			f := newHome(t, modelConfig(srv.URL))
+			f.stdin = "push it\n" + tt.answer + "\n"
+			if code := Run(context.Background(), []string{"chat", "--toolsets", "terminal"}, f.env()); code != 0 {
+				t.Fatalf("exit %d, stderr: %s", code, f.stderr.String())
+			}
+			out := f.stdout.String()
+			if !strings.Contains(out, "DANGEROUS COMMAND:") || !strings.Contains(out, "git push --force") || !strings.Contains(out, tt.wantOut) {
+				t.Errorf("stdout: %s", out)
+			}
+			if res := lastToolResult(t, record()); strings.Contains(res, "User denied this command") != tt.blocked {
+				t.Errorf("tool result = %s", res)
+			}
+		})
+	}
+}

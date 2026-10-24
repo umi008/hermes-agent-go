@@ -23,7 +23,7 @@ Assumptions:
 |---|---|---|---|---|
 | T1 state rewind + empty-session drop | S1 | inline | done | 335726e |
 | T2 agent Reset/Rewind | S1 | inline | done | 1a381e7 |
-| T3 interactive CLI: REPL, slash commands, Ctrl-C, clarify | S1 | inline | done | see Log |
+| T3 interactive CLI: REPL, slash commands, Ctrl-C, clarify | S1 | inline | done | 1a73d7a |
 | T4 skill_manage | S7 | inline | pending | |
 | T5 API server | S2 | inline | pending | |
 | T6 cron | S3 | inline | pending | |

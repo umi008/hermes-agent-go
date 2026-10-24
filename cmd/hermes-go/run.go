@@ -244,7 +244,7 @@ func newChatRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logg
 		store: rt.store, sessionID: rt.sessionID,
 	}
 	if interactive {
-		deps.asker = &lineAsker{rt: rt}
+		deps.asker, deps.prompter = &lineAsker{rt: rt}, &linePrompter{rt: rt}
 	}
 	reg, closeTools, err := buildTools(ctx, deps)
 	if err != nil {

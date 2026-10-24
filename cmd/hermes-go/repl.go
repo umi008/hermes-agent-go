@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/llm"
+	"github.com/umi008/hermes-agent-go/internal/tools/approval"
 	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 )
 
@@ -381,4 +383,36 @@ func parseAnswer(line string, q clarify.Question) any {
 		return c
 	}
 	return line
+}
+
+// linePrompter asks for dangerous-command approval in the interactive
+// chat with upstream's CLI menu. The Go port never writes config.yaml, so
+// the menu is the short one (no [a]lways), and "always" counts as session
+// as upstream does when permanent approval is unavailable.
+type linePrompter struct{ rt *chatRuntime }
+
+func (p *linePrompter) Approve(ctx context.Context, r approval.Request) (approval.Choice, error) {
+	rt := p.rt
+	rt.printf("\n  ⚠️  DANGEROUS COMMAND: %s\n      %s\n\n      [o]nce  |  [s]ession  |  [d]eny\n\n      Choice [o/s/D]: ", r.Description, r.Command)
+	var line string
+	select {
+	case <-ctx.Done():
+		rt.printf("\n      ✗ Cancelled\n\n")
+		return approval.Deny, ctx.Err()
+	case l, ok := <-rt.lines:
+		if !ok {
+			rt.printf("\n      ✗ Cancelled\n\n")
+			return approval.Deny, errors.New("input closed")
+		}
+		line = strings.ToLower(strings.TrimSpace(l))
+	}
+	choice, msg := approval.Deny, "      ✗ Denied"
+	switch line {
+	case "o", "once":
+		choice, msg = approval.Once, "      ✓ Allowed once"
+	case "s", "session", "a", "always":
+		choice, msg = approval.Session, "      ✓ Allowed for this session"
+	}
+	rt.printf("%s\n\n", msg)
+	return choice, nil
 }

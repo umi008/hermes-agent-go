@@ -37,7 +37,8 @@ type toolDeps struct {
 	store     *state.Store  // nil when the session store is unavailable
 	sessionID func() string // the live session id; it changes on /new
 	profile   string
-	asker     clarify.Asker // nil in single-query mode: nobody to ask
+	asker     clarify.Asker     // nil in single-query mode: nobody to ask
+	prompter  approval.Prompter // nil in single-query mode
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
@@ -50,6 +51,7 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	sudo, _ := d.lookup("SUDO_PASSWORD")
 	gate := approval.New(approval.Options{
 		Detector:          det,
+		Prompter:          d.prompter,
 		Allowlist:         stringList(d.cfg, "command_allowlist"),
 		Off:               d.cfg.String("approvals", "mode") == "off",
 		UnattendedApprove: d.cfg.String("approvals", "single_query_mode") == "approve",
