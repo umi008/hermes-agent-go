@@ -41,7 +41,22 @@ const (
 	EventSteer
 	// EventUsage reports the token usage of one model call.
 	EventUsage
+	// EventCompress reports a context compaction; Err is set when it failed.
+	EventCompress
 )
+
+// MaxCompressions caps compactions per Run, so a summary that does not
+// shrink the context cannot loop forever.
+const MaxCompressions = 3
+
+// Compressor shrinks the history when it nears the context window.
+type Compressor interface {
+	ShouldCompress(promptTokens int) bool
+	Estimate(system []string, msgs []llm.Message, tools []llm.ToolSpec) int
+	Compress(ctx context.Context, msgs []llm.Message) ([]llm.Message, error)
+	// Note joins the system prompt once the history has been compacted.
+	Note() string
+}
 
 // Event is a typed notification from the loop, delivered in order on the
 // goroutine that called Run.
@@ -75,7 +90,10 @@ type Options struct {
 	OnEvent func(Event)
 	// OnMessage sees every message as it joins the history, for persistence.
 	OnMessage func(llm.Message)
-	Logger    *slog.Logger
+	// Compressor, when set, compacts the history before a call that would
+	// cross its threshold. Compacted history is not re-sent to OnMessage.
+	Compressor Compressor
+	Logger     *slog.Logger
 }
 
 // Result summarizes one Run.
@@ -90,6 +108,9 @@ type Result struct {
 type Agent struct {
 	opts    Options
 	history []llm.Message
+	// lastPrompt is the prompt size the provider reported for the last call.
+	lastPrompt int
+	noted      bool
 }
 
 // New builds an agent.
@@ -135,15 +156,21 @@ func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
 	if a.opts.Tools != nil {
 		specs = a.opts.Tools.Specs()
 	}
+	compressions := 0
 	for {
 		if a.opts.MaxTurns > 0 && res.Turns >= a.opts.MaxTurns {
 			return res, ErrMaxTurns
+		}
+		if compressions < MaxCompressions && a.maybeCompress(ctx, specs) {
+			compressions++
 		}
 		res.Turns++
 		resp, err := a.call(ctx, specs)
 		if err != nil {
 			return res, err
 		}
+		u := resp.Usage
+		a.lastPrompt = u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
 		res.Usage.Add(resp.Usage)
 		a.emit(Event{Kind: EventUsage, Usage: resp.Usage})
 		res.StopReason = resp.StopReason
@@ -162,6 +189,37 @@ func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
 			return res, err
 		}
 	}
+}
+
+// maybeCompress compacts the history when the next request would cross
+// the compressor threshold. The size is the larger of the last reported
+// prompt and a local estimate, since tool results joined after that call.
+// A failed compaction keeps the history and lets the call proceed.
+func (a *Agent) maybeCompress(ctx context.Context, specs []llm.ToolSpec) bool {
+	c := a.opts.Compressor
+	if c == nil {
+		return false
+	}
+	tokens := max(a.lastPrompt, c.Estimate(a.opts.System, a.history, specs))
+	if !c.ShouldCompress(tokens) {
+		return false
+	}
+	before := len(a.history)
+	out, err := c.Compress(ctx, a.history)
+	if err != nil {
+		a.opts.Logger.Warn("context compression failed", "tokens", tokens, "err", err)
+		a.emit(Event{Kind: EventCompress, Err: err})
+		return true
+	}
+	a.history = out
+	a.lastPrompt = 0
+	if !a.noted {
+		a.opts.System = append(append([]string(nil), a.opts.System...), c.Note())
+		a.noted = true
+	}
+	a.opts.Logger.Info("context compressed", "tokens", tokens, "before", before, "after", len(out))
+	a.emit(Event{Kind: EventCompress})
+	return true
 }
 
 func (a *Agent) drainSteer() bool {

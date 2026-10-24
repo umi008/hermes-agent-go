@@ -572,3 +572,11 @@ func commas(n int) string {
 	}
 	return b.String()
 }
+
+// Note returns the package Note, so a Compressor satisfies agent.Compressor.
+func (c *Compressor) Note() string { return Note() }
+
+// Estimate returns EstimateRequest, so a Compressor satisfies agent.Compressor.
+func (c *Compressor) Estimate(system []string, msgs []llm.Message, tools []llm.ToolSpec) int {
+	return EstimateRequest(system, msgs, tools)
+}

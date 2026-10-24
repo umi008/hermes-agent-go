@@ -253,3 +253,86 @@ func TestOnMessageAndUsageEvents(t *testing.T) {
 		t.Fatalf("roles %v usage events %d", roles, usage)
 	}
 }
+
+// fakeCompressor fires at limit tokens and keeps only a summary plus the
+// newest row.
+type fakeCompressor struct {
+	limit int
+	err   error
+	seen  []int
+	calls int
+}
+
+func (f *fakeCompressor) ShouldCompress(n int) bool { f.seen = append(f.seen, n); return n >= f.limit }
+
+func (f *fakeCompressor) Estimate(_ []string, msgs []llm.Message, _ []llm.ToolSpec) int {
+	return len(msgs)
+}
+
+func (f *fakeCompressor) Compress(_ context.Context, msgs []llm.Message) ([]llm.Message, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []llm.Message{{Role: llm.RoleUser, Content: "summary"}, msgs[len(msgs)-1]}, nil
+}
+
+func (f *fakeCompressor) Note() string { return "NOTE" }
+
+func TestCompressorShrinksHistoryBeforeCall(t *testing.T) {
+	call := func(id string, tokens int) func(llm.Request, func(llm.Event)) (llm.Response, error) {
+		return func(llm.Request, func(llm.Event)) (llm.Response, error) {
+			return llm.Response{
+				Message:    llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "echo", Arguments: json.RawMessage(`{}`)}}},
+				StopReason: llm.StopToolUse, Usage: llm.Usage{InputTokens: tokens - 10, CacheReadTokens: 10},
+			}, nil
+		}
+	}
+	c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){
+		call("c1", 50), call("c2", 100), text("done"),
+	}}
+	fc := &fakeCompressor{limit: 100}
+	var recorded, compressed int
+	a := New(Options{Client: c, Tools: fakeTools{}, System: []string{"sys"}, Compressor: fc,
+		OnMessage: func(llm.Message) { recorded++ },
+		OnEvent: func(e Event) {
+			if e.Kind == EventCompress && e.Err == nil {
+				compressed++
+			}
+		},
+	})
+	if _, err := a.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	// The reported prompt (cache reads included) beats the row estimate.
+	if fc.calls != 1 || compressed != 1 || fc.seen[2] != 100 {
+		t.Fatalf("compress calls %d events %d seen %v", fc.calls, compressed, fc.seen)
+	}
+	last := c.requests[2]
+	if len(last.Messages) != 2 || last.Messages[0].Content != "summary" || last.Messages[1].ToolCallID != "c2" {
+		t.Fatalf("compacted request %+v", last.Messages)
+	}
+	if strings.Join(c.requests[1].System, "|") != "sys" || strings.Join(last.System, "|") != "sys|NOTE" {
+		t.Fatalf("system %v then %v", c.requests[1].System, last.System)
+	}
+	// Persistence sees each new message once and never the summary.
+	if recorded != 6 || len(a.History()) != 3 {
+		t.Fatalf("recorded %d history %d", recorded, len(a.History()))
+	}
+}
+
+func TestCompressorFailuresAreCappedAndNonFatal(t *testing.T) {
+	var replies []func(llm.Request, func(llm.Event)) (llm.Response, error)
+	for i := range 5 {
+		replies = append(replies, toolCalls(llm.ToolCall{ID: string(rune('a' + i)), Name: "echo", Arguments: json.RawMessage(`{}`)}))
+	}
+	c := &scriptClient{replies: append(replies, text("done"))}
+	fc := &fakeCompressor{limit: 0, err: errors.New("no")}
+	a := New(Options{Client: c, Tools: fakeTools{}, Compressor: fc})
+	if res, err := a.Run(context.Background(), "hi"); err != nil || res.Text != "done" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if fc.calls != MaxCompressions {
+		t.Fatalf("compress attempts %d", fc.calls)
+	}
+}
