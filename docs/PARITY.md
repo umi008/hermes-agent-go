@@ -59,14 +59,14 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| `state.db` sessions and messages, read and write at schema v32 | planned | `hermes_state_common.py:452-565` |
-| FTS5 `messages_fts` and `messages_fts_trigram` search | planned | `hermes_state_common.py:941-1080` |
+| `state.db` sessions and messages, read and write at schema v32 (own `hermes-go/state.db`) | done | `hermes_state_common.py:452-565` |
+| FTS5 `messages_fts` and `messages_fts_trigram` search | done (no CJK, no title match) | `hermes_state_common.py:941-1080` |
 | CJK FTS (loadable extension) | out (risk, see OPEN_QUESTIONS) | `hermes_state_fts.py` |
 | Gateway and runtime ledger tables | out | `hermes_state_common.py:586-748` |
-| `session_search` tool | planned | `agent/inline_tool_executors.py` |
-| Built-in memory: `MEMORY.md` and `USER.md` | planned | `tools/memory_tool.py`, `tools/memory_tool_store.py` |
+| `session_search` tool | done (no lineage, no cross-profile) | `agent/inline_tool_executors.py` |
+| Built-in memory: `MEMORY.md` and `USER.md` (own `hermes-go/memories`) | done (no threat scan, no file lock) | `tools/memory_tool.py`, `tools/memory_tool_store.py` |
 | Memory provider plugins | out | `plugins/memory/` |
-| Context compression (prune tool results, LLM summary, fallback) | planned | `agent/context_compressor.py` |
+| Context compression (prune tool results, LLM summary, fallback) | partial (legacy prompt, no session log or anchors) | `agent/context_compressor.py` |
 | Native Codex compaction | out | `agent/native_compaction.py` |
 
 ## Extensibility (V4)

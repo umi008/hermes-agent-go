@@ -63,6 +63,22 @@ compatibility with the Hermes home where practical.
   - `internal/tools/todo`, `internal/tools/clarify`, `internal/tools/web` (Tavily).
   - `cmd/hermes-go`: tools wired into `chat`, `--toolsets` filter, `-v` logs tool calls.
 
+- **V3 State (2026-10-24, merged to `main`).** Feature doc:
+  [odd/tasks/v3-state.md](../odd/tasks/v3-state.md).
+  - `internal/state`: a pure-Go SQLite store built from the upstream schema v32 DDL, with FTS5 search, upstream query sanitization and snippets.
+  - `internal/tools/sessionsearch`: `session_search` with discover, read, scroll and browse shapes.
+  - `internal/tools/memory`: `memory` over `MEMORY.md` and `USER.md`, upstream limits and errors, a frozen snapshot in the prompt.
+  - `internal/compress`: threshold, lean tail, tool-result pruning, LLM summary, deterministic fallback; the agent compacts before a call, at most 3 times per run.
+  - `cmd/hermes-go`: `chat` records sessions and messages, injects memory and tool guidance, reads `compression.*` and `model.context_length`.
+
+## Known V3 gaps (deliberate, tracked)
+
+- The Go port writes `<hermes>/hermes-go/state.db` and `<hermes>/hermes-go/memories`, never upstream's files. Upstream sessions are not searchable yet.
+- No session lineage (compression children, branches); each session is its own root. Compaction summaries are not persisted.
+- `session_search`: no cross-profile reads, no title match, no CJK, ASCII `\w` in the sanitizer.
+- `memory`: no threat scan, no cross-process file lock, no per-turn consolidation cap, no write approval gate.
+- Compression: no model-metadata context lookup (config or 256K default), no lean session log or anchors, no secret redaction, no per-tool digest formatters, no image retirement, no cooldowns, `compression.max_attempts` is fixed at 3, the summary uses the main model.
+
 ## Known V2 gaps (deliberate, tracked)
 
 - No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
@@ -84,7 +100,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V3 State (see ROADMAP.md).
+- V4 Extensibility (see ROADMAP.md).
 
 ## Local dev notes
 
@@ -103,6 +119,7 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | An explicit base URL with no provider resolves to `custom` | Upstream's default (OpenRouter) would send a local server's traffic to the wrong key. This deviates from upstream. |
 | 2026-10-24 | Approval patterns run on `github.com/dlclark/regexp2` with a 250 ms timeout that fails closed | 18 upstream patterns need lookarounds or possessive quantifiers RE2 lacks; parity is checked against 116 upstream verdicts. |
 | 2026-10-24 | Web tools use Tavily only | One backend keeps V2 small; others are plugins upstream. |
+| 2026-10-24 | V3 writes its own `hermes-go/state.db` and `hermes-go/memories` with the upstream schema and formats | No write risk to the user's real history while the port is young; the paths live in one place (`statePath`, `openMemory`) and can move later. |
 | 2026-10-24 | V1 adopted the OPEN_QUESTIONS recommendations as assumptions: binary `hermes-go`, the same home resolution as upstream (read-only in V1), both provider families, CI in M1.1 | The owner was away. Every one of these is reversible. |
 
 ## Open questions
