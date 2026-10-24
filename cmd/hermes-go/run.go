@@ -197,15 +197,17 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 	})
 	maxTurns, _ := cfg.Int("agent", "max_turns")
 
+	client := newClient(ep)
 	a := agent.New(agent.Options{
-		Client:    newClient(ep),
-		Tools:     reg,
-		Model:     ep.Model,
-		System:    sys.Tiers(),
-		CacheTTL:  cacheTTL(cfg),
-		MaxTurns:  maxTurns,
-		Logger:    logger,
-		OnMessage: func(m llm.Message) { rec.message(ctx, m) },
+		Client:     client,
+		Compressor: newCompressor(cfg, client, ep.Model, env.Now, logger),
+		Tools:      reg,
+		Model:      ep.Model,
+		System:     sys.Tiers(),
+		CacheTTL:   cacheTTL(cfg),
+		MaxTurns:   maxTurns,
+		Logger:     logger,
+		OnMessage:  func(m llm.Message) { rec.message(ctx, m) },
 		OnEvent: func(e agent.Event) {
 			switch {
 			case e.Kind == agent.EventUsage:
