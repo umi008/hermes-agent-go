@@ -56,6 +56,7 @@ Commands:
   serve    Serve the OpenAI-compatible HTTP API
   cron     Manage and run scheduled jobs
   gateway  Serve a chat platform (Telegram, Discord)
+  tui      Run the upstream Ink TUI against this agent
   version  Print the version
 
 Run "hermes-go <command> -h" for that command's flags.
@@ -82,6 +83,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return cronCmd(ctx, args[1:], env)
 	case "gateway":
 		return gatewayCmd(ctx, args[1:], env)
+	case "tui":
+		return tuiCmd(ctx, args[1:], env)
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "hermes-go: unknown command %q\n\n%s", args[0], usage)
 	return 2

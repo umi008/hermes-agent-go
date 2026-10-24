@@ -26,6 +26,9 @@ type chatSession struct {
 	started time.Time
 	out     io.Writer
 	usage   llm.Usage
+	// observe, when set, receives every agent event; the TUI backend maps
+	// them to its session events.
+	observe func(agent.Event)
 }
 
 // newSession opens a conversation: a fresh id, a recorder and an agent with a
@@ -33,11 +36,17 @@ type chatSession struct {
 // session source ("cli", "api", "telegram", "discord"); it also fills the
 // prompt's platform line.
 func (rt *chatRuntime) newSession(ctx context.Context, source string, out io.Writer) *chatSession {
+	return rt.newObservedSession(ctx, source, out, nil)
+}
+
+// newObservedSession is newSession with an observer that sees every agent
+// event before the session handles it.
+func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, out io.Writer, observe func(agent.Event)) *chatSession {
 	if out == nil {
 		out = io.Discard
 	}
 	started := rt.env.Now()
-	s := &chatSession{rt: rt, out: out, started: started}
+	s := &chatSession{rt: rt, out: out, started: started, observe: observe}
 	s.rec = newRecorder(ctx, rt.store, state.Session{
 		ID: state.NewSessionID(started), Source: source, Model: rt.ep.Model, Cwd: rt.cwd,
 	}, rt.logger)
@@ -102,8 +111,12 @@ func (rt *chatRuntime) toolExecutor(s *chatSession) agent.ToolExecutor {
 	})
 }
 
-// onEvent streams text to the session sink and records usage.
+// onEvent passes the event to the observer, streams text to the session
+// sink and records usage.
 func (s *chatSession) onEvent(ctx context.Context, e agent.Event) {
+	if s.observe != nil {
+		s.observe(e)
+	}
 	switch {
 	case e.Kind == agent.EventUsage:
 		s.usage.Add(e.Usage)
