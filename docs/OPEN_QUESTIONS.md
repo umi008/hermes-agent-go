@@ -31,8 +31,8 @@ depends on them.
 3. **Go SDK versions.** Verify with Context7 which Go SDKs are current before
    M1.2 and M4.2: the official MCP Go SDK, plus the `anthropic-sdk-go` and
    `openai-go` SDKs, or plain `net/http`.
-4. **TUI handshake.** Confirm how `HERMES_TUI_GATEWAY_URL` obtains the ticket
-   subprotocol without the Python bootstrap. This must be resolved before M5.6.
+4. **TUI handshake.** Resolved 2026-10-24: the explicit URL sends no ticket
+   subprotocol; see TUI_PROTOCOL, "Spike".
 5. **Exact predicates.** Read the exact predicates of the deferred indexes past
    `hermes_state_common.py:861` and the trigram FTS column list.
 
