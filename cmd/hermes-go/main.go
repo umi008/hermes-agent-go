@@ -10,7 +10,17 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	interrupt := make(chan struct{}, 1)
+	go func() {
+		for range sig {
+			select {
+			case interrupt <- struct{}{}:
+			default: // one pending Ctrl-C is enough
+			}
+		}
+	}()
 	env := Env{
 		GOOS:        runtime.GOOS,
 		Getenv:      os.Getenv,
@@ -21,8 +31,9 @@ func main() {
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
+		Interrupt:   interrupt,
 	}
-	code := Run(ctx, os.Args[1:], env)
-	stop()
+	code := Run(context.Background(), os.Args[1:], env)
+	signal.Stop(sig)
 	os.Exit(code)
 }

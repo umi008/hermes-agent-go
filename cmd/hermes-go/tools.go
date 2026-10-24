@@ -34,9 +34,10 @@ type toolDeps struct {
 
 	memory    *memory.Store // nil when both stores are disabled
 	skills    *skills.Catalog
-	store     *state.Store // nil when the session store is unavailable
-	sessionID string
+	store     *state.Store  // nil when the session store is unavailable
+	sessionID func() string // the live session id; it changes on /new
 	profile   string
+	asker     clarify.Asker // nil in single-query mode: nobody to ask
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
@@ -80,19 +81,18 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 		all = append(all, d.memory.Tool())
 	}
 	if d.skills != nil {
-		id := d.sessionID
-		all = append(all, skills.Tools(d.skills, func() string { return id })...)
+		all = append(all, skills.Tools(d.skills, d.sessionID)...)
 	}
 	if d.store != nil {
-		profile, id := d.profile, d.sessionID
+		profile := d.profile
 		if profile == "" {
 			profile = "default"
 		}
 		all = append(all, sessionsearch.Tool(sessionsearch.Options{
-			Store: d.store, Current: func() string { return id }, Profile: profile,
+			Store: d.store, Current: d.sessionID, Profile: profile,
 		}))
 	}
-	all = append(all, clarify.Tool(nil)) // single-query mode: nobody to ask
+	all = append(all, clarify.Tool(d.asker))
 	all = append(all, web.New(web.Options{
 		APIKey: key, BaseURL: baseURL,
 		CacheDir: filepath.Join(d.hermes, "cache", "web"), Logger: d.logger,
