@@ -78,6 +78,15 @@ compatibility with the Hermes home where practical.
   - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
   - `cmd/hermes-go`: `skills.*`, `mcp_servers` and `hooks:` config; `chat --accept-hooks`.
 
+- **V5 Interfaces (in progress).** Feature doc:
+  [odd/tasks/v5-interfaces.md](../odd/tasks/v5-interfaces.md).
+  - M5.1 interactive CLI: `hermes-go chat` without `-q` is a REPL with a slash-command subset; Ctrl-C cancels the running turn and exits when idle; `clarify` and dangerous-command approval are answered from the terminal; `/retry` and `/undo` soft-archive turns in the store like upstream.
+
+## Known V5 gaps (deliberate, tracked)
+
+- Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
+- `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
+
 ## Known V4 gaps (deliberate, tracked)
 
 - Skills are read-only: `skill_manage` waits for the interactive CLI (V5), as upstream hides it in single-query runs. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
@@ -95,11 +104,11 @@ compatibility with the Hermes home where practical.
 ## Known V2 gaps (deliberate, tracked)
 
 - No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
-- No smart (LLM) approval and no gateway approvals; `chat -q` has no prompter, so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
+- No smart (LLM) approval and no gateway approvals; `chat -q` has no prompter (the interactive CLI asks), so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
 - `patch` ports exact and whitespace-tolerant matching only; upstream's further fuzzy strategies are not ported. No `.gitignore` filtering in `search_files`.
 - Docker: killing `docker exec` does not stop the process inside the container; the container is removed on exit.
 - Command deobfuscation is limited to upstream's normalization; no parser-limit block.
-- `clarify` returns "not available" until the interactive CLI (V5).
+- `clarify` returns "not available" in `chat -q`; the interactive CLI answers it.
 
 ## Known V1 gaps (deliberate, tracked)
 
@@ -113,7 +122,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V5 Interfaces (see ROADMAP.md).
+- V5 Interfaces: `skill_manage`, then M5.2 API server, M5.3 cron, M5.4 gateway + Telegram (see the feature doc).
 
 ## Local dev notes
 

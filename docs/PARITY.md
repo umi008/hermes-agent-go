@@ -42,12 +42,12 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Tool registry, toolsets, `check_fn` | done | `tools/registry.py`, `toolsets.py`, `model_tools.py` |
 | `read_file`, `write_file`, `patch`, `search_files` | partial (no fuzzy patch strategies beyond exact/whitespace, no .gitignore) | `tools/file_*.py` (UNVERIFIED names) |
 | `terminal` (local backend), `process_manage` | done | `tools/terminal_tool*.py`, `tools/environments/local.py` |
-| Dangerous-command detection and approval | done (116-command parity fixture; CLI prompter in V5) | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
+| Dangerous-command detection and approval | done (116-command parity fixture; once/session/deny prompt in the interactive CLI) | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
 | Smart (LLM) approval gate | later | `tools/approval.py:764` |
 | `web_search`, `web_extract` | done (Tavily only) | `tools/web_*.py`, `plugins/web/` |
 | Docker terminal backend | done | `tools/environments/docker.py` |
 | SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |
-| `todo_list`, `clarify` | done (clarify has no UI until V5) | `agent/inline_tool_executors.py:253-313` |
+| `todo_list`, `clarify` | done (clarify answered in the interactive CLI) | `agent/inline_tool_executors.py:253-313` |
 | `delegate_task` (subagents) | later | `tools/delegate_tool*.py` |
 | `vision_analyze`, `image_generate`, `text_to_speech` | out | `tools/` |
 | Browser tools | out | `tools/browser*` |
@@ -89,8 +89,8 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| CLI REPL and one-shot mode | planned | `cli.py`, `hermes_cli/cli_*_mixin.py` |
-| Slash commands (subset) | planned | `hermes_cli/` slash registry |
+| CLI REPL and one-shot mode | done (Ctrl-C cancels a turn; clarify and dangerous-command approval answered from the terminal) | `cli.py`, `hermes_cli/cli_*_mixin.py` |
+| Slash commands (subset) | done (/new /reset /clear /history /retry /undo /title /status /model /tools /toolsets /skills /help /quit) | `hermes_cli/` slash registry |
 | TUI backend speaking `hermes-gateway-v1` over WebSocket | planned (see TUI_PROTOCOL) | `tui_gateway/`, `gateway/session_controls.py` |
 | Telegram adapter | planned | `plugins/platforms/telegram/` |
 | Discord adapter | planned | `plugins/platforms/discord/` |

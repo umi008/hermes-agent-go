@@ -4,7 +4,7 @@ A scoped Go port of [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 by Nous Research. This is a learning and portfolio project, not a replacement
 for upstream.
 
-**Status:** V1 Core, V2 Tools, V3 State and V4 Extensibility done (`hermes-go chat -q` with tools, session history in SQLite, `session_search`, `memory`, context compression, skills, MCP servers, shell hooks). Next: V5 Interfaces.
+**Status:** V1 Core, V2 Tools, V3 State and V4 Extensibility done (`hermes-go chat -q` with tools, session history in SQLite, `session_search`, `memory`, context compression, skills, MCP servers, shell hooks). V5 Interfaces in progress: interactive `hermes-go chat` (REPL, slash commands, Ctrl-C) is done.
 
 **Goals:**
 
