@@ -1,0 +1,1665 @@
+{
+ "split": [
+  {
+   "line": "a b  c",
+   "posix": [
+    "a",
+    "b",
+    "c"
+   ],
+   "windows": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "line": "echo \"hi there\" x",
+   "posix": [
+    "echo",
+    "hi there",
+    "x"
+   ],
+   "windows": [
+    "echo",
+    "hi there",
+    "x"
+   ]
+  },
+  {
+   "line": "it's",
+   "posix": null,
+   "windows": [
+    "it's"
+   ]
+  },
+  {
+   "line": "'a b'c",
+   "posix": [
+    "a bc"
+   ],
+   "windows": [
+    "a b",
+    "c"
+   ]
+  },
+  {
+   "line": "\"a b\"c",
+   "posix": [
+    "a bc"
+   ],
+   "windows": [
+    "a b",
+    "c"
+   ]
+  },
+  {
+   "line": "C:\\Users\\me\\x.sh --f",
+   "posix": [
+    "C:Usersmex.sh",
+    "--f"
+   ],
+   "windows": [
+    "C:\\Users\\me\\x.sh",
+    "--f"
+   ]
+  },
+  {
+   "line": "a\\ b",
+   "posix": [
+    "a b"
+   ],
+   "windows": [
+    "a\\",
+    "b"
+   ]
+  },
+  {
+   "line": "\"a\\\"b\"",
+   "posix": [
+    "a\"b"
+   ],
+   "windows": [
+    "a\\",
+    "b\""
+   ]
+  },
+  {
+   "line": "'a\\b'",
+   "posix": [
+    "a\\b"
+   ],
+   "windows": [
+    "a\\b"
+   ]
+  },
+  {
+   "line": "x \"unterminated",
+   "posix": null,
+   "windows": null
+  },
+  {
+   "line": "end\\",
+   "posix": null,
+   "windows": [
+    "end\\"
+   ]
+  },
+  {
+   "line": "~/hooks/x.sh",
+   "posix": [
+    "~/hooks/x.sh"
+   ],
+   "windows": [
+    "~/hooks/x.sh"
+   ]
+  },
+  {
+   "line": "\"C:\\Program Files\\x.exe\" arg",
+   "posix": [
+    "C:\\Program Files\\x.exe",
+    "arg"
+   ],
+   "windows": [
+    "C:\\Program Files\\x.exe",
+    "arg"
+   ]
+  },
+  {
+   "line": "a\"b c\"d",
+   "posix": [
+    "ab cd"
+   ],
+   "windows": [
+    "a\"b",
+    "c\"d"
+   ]
+  }
+ ],
+ "evaluate": [
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "ok_empty",
+   "result": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit2_plain",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit2_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "  nope \n",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "nope"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit2_json",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"why\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "why"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit2_json_other",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"context\":\"c\"}",
+    "stderr": "e",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "e"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "exit1_block",
+   "result": {
+    "returncode": 1,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "m"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "garbage",
+   "result": {
+    "returncode": 0,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "garbage_exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "list",
+   "result": {
+    "returncode": 0,
+    "stdout": "[1]",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "timeout",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": true,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "error",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": "command not found"
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "block_action",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "m"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "block_empty_msg",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "r"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "block_nonstr",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":5}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "block_none",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "decision_block",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"r\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "r"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "modify",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":{\"a\":1}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "modify",
+    "args": {
+     "a": 1
+    }
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "modify_cc",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"modify\",\"tool_input\":{\"b\":2}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "modify",
+    "args": {
+     "b": 2
+    }
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "modify_bad",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":[1]}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "approve",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\",\"message\":\" m \",\"rule_key\":\" k \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "approve",
+    "message": "m",
+    "rule_key": "k"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "approve_bare",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "approve"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "context",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"hello\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "context_blank",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"  \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": false,
+   "name": "long_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "ok_empty",
+   "result": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit2_plain",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit2_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "  nope \n",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "nope"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit2_json",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"why\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "why"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit2_json_other",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"context\":\"c\"}",
+    "stderr": "e",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "e"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: hook exited 1 with no directive"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "exit1_block",
+   "result": {
+    "returncode": 1,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "m"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "garbage",
+   "result": {
+    "returncode": 0,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: unparseable stdout (expected a JSON object)"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "garbage_exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: hook exited 1 with no directive"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "list",
+   "result": {
+    "returncode": 0,
+    "stdout": "[1]",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: unparseable stdout (expected a JSON object)"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "timeout",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": true,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: timed out after 60s"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "error",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": "command not found"
+   },
+   "want": {
+    "action": "block",
+    "message": "hook hook.sh failed closed: command not found"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "block_action",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "m"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "block_empty_msg",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "r"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "block_nonstr",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":5}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "block_none",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "Blocked by shell hook."
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "decision_block",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"r\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "r"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "modify",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":{\"a\":1}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "modify",
+    "args": {
+     "a": 1
+    }
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "modify_cc",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"modify\",\"tool_input\":{\"b\":2}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "modify",
+    "args": {
+     "b": 2
+    }
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "modify_bad",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":[1]}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "approve",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\",\"message\":\" m \",\"rule_key\":\" k \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "approve",
+    "message": "m",
+    "rule_key": "k"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "approve_bare",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "approve"
+   }
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "context",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"hello\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "context_blank",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"  \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "pre_tool_call",
+   "fail_closed": true,
+   "name": "long_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "action": "block",
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "ok_empty",
+   "result": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit2_plain",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit2_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "  nope \n",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit2_json",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"why\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit2_json_other",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"context\":\"c\"}",
+    "stderr": "e",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "context": "c"
+   }
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "exit1_block",
+   "result": {
+    "returncode": 1,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "garbage",
+   "result": {
+    "returncode": 0,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "garbage_exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "list",
+   "result": {
+    "returncode": 0,
+    "stdout": "[1]",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "timeout",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": true,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "error",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": "command not found"
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "block_action",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "block_empty_msg",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "block_nonstr",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":5}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "block_none",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "decision_block",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"r\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "modify",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":{\"a\":1}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "modify_cc",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"modify\",\"tool_input\":{\"b\":2}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "modify_bad",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":[1]}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "approve",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\",\"message\":\" m \",\"rule_key\":\" k \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "approve_bare",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "context",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"hello\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "context": "hello"
+   }
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "context_blank",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"  \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": false,
+   "name": "long_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "ok_empty",
+   "result": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit2_plain",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit2_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "  nope \n",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit2_json",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"why\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit2_json_other",
+   "result": {
+    "returncode": 2,
+    "stdout": "{\"context\":\"c\"}",
+    "stderr": "e",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "context": "c"
+   }
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "exit1_block",
+   "result": {
+    "returncode": 1,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "garbage",
+   "result": {
+    "returncode": 0,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "garbage_exit1",
+   "result": {
+    "returncode": 1,
+    "stdout": "Traceback",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "list",
+   "result": {
+    "returncode": 0,
+    "stdout": "[1]",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "timeout",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": true,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "error",
+   "result": {
+    "returncode": null,
+    "stdout": "",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": "command not found"
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "block_action",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"m\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "block_empty_msg",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":\"\",\"reason\":\"r\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "block_nonstr",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\",\"message\":5}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "block_none",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"block\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "decision_block",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"block\",\"reason\":\"r\",\"message\":\"m\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "modify",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":{\"a\":1}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "modify_cc",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"decision\":\"modify\",\"tool_input\":{\"b\":2}}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "modify_bad",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"modify\",\"args\":[1]}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "approve",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\",\"message\":\" m \",\"rule_key\":\" k \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "approve_bare",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"action\":\"approve\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "context",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"hello\"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": {
+    "context": "hello"
+   }
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "context_blank",
+   "result": {
+    "returncode": 0,
+    "stdout": "{\"context\":\"  \"}",
+    "stderr": "",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  },
+  {
+   "event": "post_tool_call",
+   "fail_closed": true,
+   "name": "long_stderr",
+   "result": {
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "timed_out": false,
+    "elapsed_seconds": 0.1,
+    "error": null
+   },
+   "want": null
+  }
+ ]
+}
