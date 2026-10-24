@@ -231,7 +231,7 @@ func TestREPLInterrupt(t *testing.T) {
 	intr <- struct{}{} // cancels the hanging turn
 	_, _ = io.WriteString(feed, "next\n")
 	deadline := time.After(10 * time.Second)
-	for !strings.Contains(out.String(), "fine") {
+	for !strings.HasSuffix(out.String(), "fine\n> ") {
 		select {
 		case <-deadline:
 			t.Fatalf("no reply after interrupt: %s", out.String())

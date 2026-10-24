@@ -118,15 +118,18 @@ func (rt *chatRuntime) repl(ctx context.Context) error {
 func (rt *chatRuntime) interactiveTurn(ctx context.Context, input string) {
 	tctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan struct{})
-	defer close(done)
+	done, watched := make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(watched)
 		select {
 		case <-rt.env.Interrupt:
 			cancel()
 		case <-done:
 		}
 	}()
+	// The watcher is gone before the prompt returns, so the next Ctrl-C
+	// reaches the idle loop.
+	defer func() { close(done); <-watched }()
 	err := rt.turn(tctx, input)
 	switch {
 	case err == nil:
