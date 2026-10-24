@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/config"
+	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/state"
 	"github.com/umi008/hermes-agent-go/internal/tools"
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
 	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 	"github.com/umi008/hermes-agent-go/internal/tools/files"
+	"github.com/umi008/hermes-agent-go/internal/tools/mcpclient"
 	"github.com/umi008/hermes-agent-go/internal/tools/memory"
 	"github.com/umi008/hermes-agent-go/internal/tools/sessionsearch"
 	"github.com/umi008/hermes-agent-go/internal/tools/terminal"
@@ -31,13 +33,14 @@ type toolDeps struct {
 	logger   *slog.Logger
 
 	memory    *memory.Store // nil when both stores are disabled
-	store     *state.Store  // nil when the session store is unavailable
+	skills    *skills.Catalog
+	store     *state.Store // nil when the session store is unavailable
 	sessionID string
 	profile   string
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
-// terminal backend and must run even on error paths after success.
+// terminal backend and MCP sessions and must run even on error paths after success.
 func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error) {
 	det, err := approval.NewDetector(d.homeDir, d.hermes)
 	if err != nil {
@@ -76,6 +79,10 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 	if d.memory != nil {
 		all = append(all, d.memory.Tool())
 	}
+	if d.skills != nil {
+		id := d.sessionID
+		all = append(all, skills.Tools(d.skills, func() string { return id })...)
+	}
 	if d.store != nil {
 		profile, id := d.profile, d.sessionID
 		if profile == "" {
@@ -90,6 +97,17 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 		APIKey: key, BaseURL: baseURL,
 		CacheDir: filepath.Join(d.hermes, "cache", "web"), Logger: d.logger,
 	}).Tools()...)
+	if servers := mcpServers(d.cfg, d.lookup, d.logger); len(servers) > 0 {
+		mgr := mcpclient.Connect(ctx, mcpclient.Options{Servers: servers, LookupEnv: d.lookup, Logger: d.logger})
+		all = append(all, mgr.Tools()...)
+		closeTerm := closeFn
+		closeFn = func() {
+			if err := mgr.Close(); err != nil {
+				d.logger.Warn("close MCP servers", "err", err)
+			}
+			closeTerm()
+		}
+	}
 
 	reg, err := tools.NewRegistry(all...)
 	if err != nil {

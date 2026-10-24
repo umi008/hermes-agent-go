@@ -71,6 +71,19 @@ compatibility with the Hermes home where practical.
   - `internal/compress`: threshold, lean tail, tool-result pruning, LLM summary, deterministic fallback; the agent compacts before a call, at most 3 times per run.
   - `cmd/hermes-go`: `chat` records sessions and messages, injects memory and tool guidance, reads `compression.*` and `model.context_length`.
 
+- **V4 Extensibility (2026-10-24, merged to `main`).** Feature doc:
+  [odd/tasks/v4-extensibility.md](../odd/tasks/v4-extensibility.md).
+  - `internal/skills`: SKILL.md discovery under `<hermes>/skills` and `skills.external_dirs`, `skills_list`, `skill_view`, and the prompt index, matched to upstream output on a fixture.
+  - `internal/tools/mcpclient`: MCP over stdio, streamable HTTP and SSE on the official Go SDK; tools register as `mcp__<server>__<tool>` in toolset `mcp-<server>`, with upstream schema normalization, include/exclude filters, timeouts, a safe stdio env and credential redaction.
+  - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
+  - `cmd/hermes-go`: `skills.*`, `mcp_servers` and `hooks:` config; `chat --accept-hooks`.
+
+## Known V4 gaps (deliberate, tracked)
+
+- Skills are read-only: `skill_manage` waits for the interactive CLI (V5), as upstream hides it in single-query runs. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
+- MCP: no resources or prompts utility tools, no reconnect or backoff, no OAuth, no sampling, no const-union schema collapse, no server-name toolset alias. Images and audio become a text notice instead of a cached file. Globs use `path.Match`, which differs from `fnmatch` on `/`.
+- Hooks: only `pre_tool_call` and `post_tool_call` fire; other valid events are logged and skipped. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
+
 ## Known V3 gaps (deliberate, tracked)
 
 - The Go port writes `<hermes>/hermes-go/state.db` and `<hermes>/hermes-go/memories`, never upstream's files. Upstream sessions are not searchable yet.
@@ -100,7 +113,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V4 Extensibility (see ROADMAP.md).
+- V5 Interfaces (see ROADMAP.md).
 
 ## Local dev notes
 
@@ -120,6 +133,8 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | Approval patterns run on `github.com/dlclark/regexp2` with a 250 ms timeout that fails closed | 18 upstream patterns need lookarounds or possessive quantifiers RE2 lacks; parity is checked against 116 upstream verdicts. |
 | 2026-10-24 | Web tools use Tavily only | One backend keeps V2 small; others are plugins upstream. |
 | 2026-10-24 | V3 writes its own `hermes-go/state.db` and `hermes-go/memories` with the upstream schema and formats | No write risk to the user's real history while the port is young; the paths live in one place (`statePath`, `openMemory`) and can move later. |
+| 2026-10-24 | MCP client on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0) | Official SDK; it ships stdio, streamable HTTP and SSE client transports. |
+| 2026-10-24 | Shell hooks never prompt or write the allowlist | `chat -q` has no TTY to ask, and the allowlist is upstream's file in the user's home. |
 | 2026-10-24 | V1 adopted the OPEN_QUESTIONS recommendations as assumptions: binary `hermes-go`, the same home resolution as upstream (read-only in V1), both provider families, CI in M1.1 | The owner was away. Every one of these is reversible. |
 
 ## Open questions

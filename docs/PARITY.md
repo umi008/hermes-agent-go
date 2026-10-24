@@ -73,14 +73,16 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| Skills discovery and frontmatter, `skills_list` / `skill_view` | planned | `agent/skill_utils.py`, `tools/skills_tool.py` |
-| `skill_manage` (create and patch agent skills) | planned | `tools/skill_manager_tool.py` |
-| Skills index in the system prompt | planned | `agent/prompt_builder.py:1244` |
+| Skills discovery and frontmatter, `skills_list` / `skill_view` | done | `agent/skill_utils.py`, `tools/skills_tool.py` |
+| `skill_manage` (create and patch agent skills) | planned (V5, with the interactive CLI) | `tools/skill_manager_tool.py` |
+| Skills index in the system prompt | done | `agent/prompt_builder.py:1244` |
 | Skills hub, curator, bundled sync | out | `tools/skills_hub*.py`, `agent/curator.py`, `tools/skills_sync.py` |
-| MCP client over stdio | planned | `tools/mcp_tool.py:160` |
-| MCP client over streamable HTTP | planned | `tools/mcp_tool.py:162-164` |
-| MCP SSE, sampling, OAuth | later | `tools/mcp_tool*.py` |
-| Shell hooks (`hooks:` config) | planned | `agent/shell_hooks.py` |
+| MCP client over stdio | done | `tools/mcp_tool.py:160` |
+| MCP client over streamable HTTP | done | `tools/mcp_tool.py:162-164` |
+| MCP SSE transport | done | `tools/mcp_tool*.py` |
+| Shell hooks (`hooks:` config) | done (`pre_tool_call`, `post_tool_call`) | `agent/shell_hooks.py` |
+| MCP sampling, OAuth, resources and prompts tools | later | `tools/mcp_tool*.py` |
+| Other shell hook events | later | `agent/shell_hooks.py` |
 | Python plugin system | out (no Python plugins in Go) | `hermes_cli/plugins.py` |
 
 ## Interfaces (V5)

@@ -38,10 +38,12 @@ type Inputs struct {
 	// Now is the session start time, in the user's location.
 	Now time.Time
 
-	// ToolGuidance is behavioral text for loaded tools, kept in the stable
-	// tier after the identity.
+	// ToolGuidance is behavioral text for loaded tools. Upstream joins it
+	// with spaces into one stable-tier part after the identity.
 	ToolGuidance []string
-	// Memory holds the frozen memory blocks; they lead the volatile tier.
+	// Skills is the skills index; it leads the volatile tier.
+	Skills string
+	// Memory holds the frozen memory blocks, after the skills index.
 	Memory []string
 
 	Logger *slog.Logger
@@ -94,9 +96,9 @@ func Build(in Inputs) Prompt {
 	}
 
 	return Prompt{
-		Stable:   joinTier(append([]string{identity}, in.ToolGuidance...)...),
+		Stable:   joinTier(identity, strings.Join(in.ToolGuidance, " ")),
 		Context:  joinTier(context),
-		Volatile: joinTier(append(append([]string(nil), in.Memory...), timestampLine(in))...),
+		Volatile: joinTier(append(append([]string{in.Skills}, in.Memory...), timestampLine(in))...),
 	}
 }
 
