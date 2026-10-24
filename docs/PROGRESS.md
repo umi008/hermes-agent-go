@@ -78,7 +78,7 @@ compatibility with the Hermes home where practical.
   - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
   - `cmd/hermes-go`: `skills.*`, `mcp_servers` and `hooks:` config; `chat --accept-hooks`.
 
-- **V5 Interfaces (in progress).** Feature doc:
+- **V5 Interfaces (2026-10-24, on `dev`).** Feature doc:
   [odd/tasks/v5-interfaces.md](../odd/tasks/v5-interfaces.md).
   - M5.1 interactive CLI: `hermes-go chat` without `-q` is a REPL with a slash-command subset; Ctrl-C cancels the running turn and exits when idle; `clarify` and dangerous-command approval are answered from the terminal; `/retry` and `/undo` soft-archive turns in the store like upstream.
   - Session seam: one `chatRuntime` per process serves many `chatSession`s, each with its own id, recorder, agent, output sink and hooks. The API server, cron and the gateways open one session per request, job or chat, and the REPL keeps its own in `rt.cur`.
@@ -87,6 +87,7 @@ compatibility with the Hermes home where practical.
   - M5.2 API server: `hermes-go serve` answers `/v1/models` and `/v1/chat/completions`, streaming and not, behind a bearer token from `api_server.api_key` or `HERMES_API_KEY`, with one session per request.
   - M5.3 cron: `hermes-go cron` round-trips `jobs.json` preserving keys the port does not model, parses interval, 5-field cron and one-shot schedules, ticks behind `cron/.tick.lock` with at-most-once dispatch, and writes and prunes `cron/output/`.
   - M5.4 and M5.5 gateways: `hermes-go gateway` serves Telegram (long polling) and Discord (Gateway WebSocket), one session per chat, a per-chat queue, chunked replies and approvals answered in the chat.
+  - M5.6 TUI backend (option A, legacy wire): `hermes-go tui` serves the upstream TUI's JSON-RPC WebSocket on a loopback port with a random token and launches the unmodified `ui-tui` build (`--tui-dir` or `HERMES_TUI_DIR`) with `HERMES_TUI_GATEWAY_URL`. `internal/tuigateway` answers the startup and poll methods, runs `session.create`, `prompt.submit` (queued behind a running turn), `session.interrupt` and `session.close`, streams message, reasoning and tool events, and asks approvals and clarify batches (`clarify.lock`) as server requests. The real upstream TUI was built from a scratch copy and boots against it to `ready` with the session created.
 
 - **V6 Packaging (2026-10-24, on `dev`).**
   - `hermes-go version` (and `--version`) prints the version injected with `-X main.version`; development builds say `dev`.
@@ -101,6 +102,8 @@ compatibility with the Hermes home where practical.
 - `serve` in a container must listen on `0.0.0.0`, which requires an API key.
 
 ## Known V5 gaps (deliberate, tracked)
+
+- TUI: legacy wire only (no `session_authority`, receipts or epochs); no resume, session list, slash commands, model switch, skins, `sudo`/`secret` requests or usage ticker; startup and poll methods return empty results, so the banner lists 0 tools; sessions end when their connection closes. Submitting a prompt from the real TUI was not exercised by the agent (it needs typing in a TTY); the wire is covered by WebSocket tests.
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
 - `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
@@ -144,7 +147,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V5 Interfaces: complete except the TUI backend (T9), whose decision is still open (see [TUI_PROTOCOL.md](TUI_PROTOCOL.md)).
+- V5 Interfaces: done on `dev`. A later TUI slice can add the canonical wire, resume and slash commands.
 - Merge `dev` into `main` and tag the first release once the owner approves.
 
 ## Local dev notes
@@ -171,6 +174,9 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | One `chatRuntime` per process, one `chatSession` per conversation; hooks wrap the shared registry per session | The API server, cron and the gateways run many conversations over one store and one tool registry, and a hook payload must name the session that called the tool. The REPL keeps `rt.cur` and its behavior is unchanged. |
 | 2026-10-24 | `internal/gateway/adapter.go` is the platform seam: adapters speak their wire protocol, the core owns sessions, queues and approvals | Telegram and Discord stay free of store and prompt code, and each adapter can land without touching the core. |
 | 2026-10-24 | `skill_manage` ports the advertised `operations` array with atomic rollback, minus the staged write gate, audit ledger, linter and curator guard | Those parts depend on Python machinery (staged approvals, a JSONL ledger, skill sync) the port does not have; the contract the model sees is preserved. |
+
+| 2026-10-24 | The TUI backend speaks upstream's legacy wire first; `prompt.submit` refuses `submission_id` with 4000 as upstream's legacy contract does | The upstream TUI falls back to legacy delivery on that refusal, so the unmodified client works without the canonical handshake. |
+| 2026-10-24 | WebSocket on `github.com/coder/websocket` (v1.8.15) | Small, maintained, context-aware, no dependencies. |
 
 ## Open questions
 

@@ -91,7 +91,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 |---|---|---|
 | CLI REPL and one-shot mode | done (Ctrl-C cancels a turn; clarify and dangerous-command approval answered from the terminal) | `cli.py`, `hermes_cli/cli_*_mixin.py` |
 | Slash commands (subset) | done (/new /reset /clear /history /retry /undo /title /status /model /tools /toolsets /skills /help /quit) | `hermes_cli/` slash registry |
-| TUI backend speaking `hermes-gateway-v1` over WebSocket | planned (see TUI_PROTOCOL) | `tui_gateway/`, `gateway/session_controls.py` |
+| TUI backend speaking `hermes-gateway-v1` over WebSocket | done: legacy wire, `hermes-go tui` (canonical wire planned) | `tui_gateway/`, `gateway/session_controls.py` |
 | Telegram adapter | done (long polling, text only; no inline keyboards, media, topics or voice) | `plugins/platforms/telegram/` |
 | Discord adapter | done (Gateway WebSocket v10 and REST, text only; no slash commands, components or voice) | `plugins/platforms/discord/` |
 | Gateway pairing and approvals | done (subset: sessions per chat, per-chat queue, approvals answered in the chat; no pairing, delivery ledger or rooms) | `gateway/pairing.py`, `tools/approval.py:126-196` |

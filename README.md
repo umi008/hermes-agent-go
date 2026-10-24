@@ -4,7 +4,7 @@ A scoped Go port of [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 by Nous Research. This is a learning and portfolio project, not a replacement
 for upstream.
 
-**Status:** V1 Core, V2 Tools, V3 State, V4 Extensibility, V5 Interfaces and V6 Packaging done: `hermes-go chat` is interactive (REPL, slash commands, Ctrl-C) or one-shot with `-q`, `hermes-go serve` speaks the OpenAI-compatible API, `hermes-go cron` runs `jobs.json` schedules, `hermes-go gateway` serves Telegram and Discord, and the agent can write its own skills with `skill_manage`. Only the TUI backend is still open (see [docs/TUI_PROTOCOL.md](docs/TUI_PROTOCOL.md)).
+**Status:** V1 Core, V2 Tools, V3 State, V4 Extensibility, V5 Interfaces and V6 Packaging done: `hermes-go chat` is interactive (REPL, slash commands, Ctrl-C) or one-shot with `-q`, `hermes-go serve` speaks the OpenAI-compatible API, `hermes-go cron` runs `jobs.json` schedules, `hermes-go gateway` serves Telegram and Discord, `hermes-go tui` drives the upstream Ink TUI, and the agent can write its own skills with `skill_manage`.
 
 **Goals:**
 
@@ -57,6 +57,7 @@ hermes-go cron add --schedule 30m --prompt "status report"
 hermes-go cron serve                 # tick every 60s
 hermes-go gateway                    # Telegram: gateway.telegram.token or TELEGRAM_BOT_TOKEN
 hermes-go gateway --platform discord # Discord: discord.token or DISCORD_BOT_TOKEN
+hermes-go tui --tui-dir path/to/tui  # upstream ui-tui build; without it, prints the URL to attach
 ```
 
 With Docker (the home lives in the `/data` volume; `serve` must listen on

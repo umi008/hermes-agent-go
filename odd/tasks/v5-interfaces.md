@@ -30,7 +30,7 @@ Assumptions:
 | T6 cron | S3 | worker, finished inline | done | see Log |
 | T7 gateway core + Telegram | S4 | worker, finished inline | done | see Log |
 | T8 Discord | S5 | worker, finished inline | done | see Log |
-| T9 TUI backend | S6 | inline | in progress | |
+| T9 TUI backend | S6 | inline | done (legacy wire) | 89fa16c, efa36c3, c15661c |
 
 Route evidence: the parent owns the shared seams (`cmd/hermes-go/chat_session.go`, `internal/gateway/adapter.go`, the `run.go` dispatch and the docs) and writes them inline. T4-T8 run in parallel as workers on disjoint surfaces: T4 `internal/skills` + the tools registration, T5 `internal/apiserver` + `serve.go`, T6 `internal/cron` + `cron.go`, T7 `internal/gateway` (except `adapter.go`) + `internal/telegram` + `gateway.go`, T8 `internal/discord`. No worker edits `run.go`; each reports the dispatch snippet the parent pastes. All five workers died on the same model error; the parent finished their partial work inline in small steps instead of relaunching in a loop.
 
@@ -46,3 +46,4 @@ Route evidence: the parent owns the shared seams (`cmd/hermes-go/chat_session.go
 - 2026-10-24: verification: `go test ./...` green, `go vet` clean, `golangci-lint` 0 issues; smoke of `serve -h`, `cron -h|list|add`, `gateway -h` against a scratch `HERMES_HOME`. Telegram and Discord were not exercised against live APIs (no tokens); their tests use fake servers.
 - L3 (2026-10-24, owner, on the T9 options A/B/C): "\"A\" creo, lo q sea más parecido a hermes original, recuerda q así es el. plan"
 - 2026-10-24: T9 takes option A: `hermes-go` serves `/api/ws` on loopback and the upstream Ink TUI attaches through `HERMES_TUI_GATEWAY_URL`, unmodified. Fidelity to upstream wins over a smaller surface.
+- 2026-10-24: T9 slice 1 lands the legacy wire: `internal/tuigateway` plus `hermes-go tui`. Method names checked against upstream contracts: the server requests are `approval` and `clarify` (not `*.request`), close reason `tui_close`, default source `tui`, `submission_id` refused with 4000 so the client falls back to legacy delivery. Tests drive a Go WebSocket client through the handshake, streaming, queueing, interrupt, approval, clarify locks and disconnect; `go test -race ./...` green, lint 0. The upstream TUI, built in a scratch copy, booted against the binary to `ready` (version, model and session shown). Typing a prompt in the real TUI was not exercised by the agent. Risk: item 4 (concurrency in the request and turn lifecycle).

@@ -62,7 +62,7 @@ The stdio `tui_gateway.entry` path is still used by the desktop e2e harness
 
 **Consequence:** option A works without touching upstream and without Python: `hermes-go` serves `/api/ws` on loopback and launches Ink with `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/api/ws?token=<random>`. The remaining cost is the method surface, not the handshake.
 
-## Options for the Go port (decision deferred to V5)
+## Options for the Go port (decided: A)
 
 | Option | Cost | Upstream TUI untouched? |
 |---|---|---|
@@ -76,3 +76,10 @@ The stdio `tui_gateway.entry` path is still used by the desktop e2e harness
 - about 20–25 events: `message.*`, `tool.*`, `reasoning.delta`, `session.*`, `status.update`, `error`.
 
 A conformance test can validate Go payloads against the OpenRPC JSON schemas.
+
+## Implementation (option A, legacy wire, 2026-10-24)
+
+- `internal/tuigateway` serves `/api/ws?token=...`. `gateway.ready` carries `heartbeat: true` and no `session_authority`, so the client stays on the legacy wire.
+- The server requests are `approval` (choices `once`, `session`, `deny`) and `clarify` (one request per batch; `clarify.lock` per question, or a response frame with `answers`). Ids are `srq-<12 hex>`; a cancelled turn withdraws them with `request.cancel`.
+- `prompt.submit` with `submission_id` is refused with 4000, as upstream's legacy contract does; the client then retries with legacy delivery.
+- `hermes-go tui` launches `node --expose-gc <tui-dir>/dist/entry.js`. Build that product from an upstream checkout: install the workspace dependencies, `npm run build:ink` in `ui-tui`, then `node scripts/build/tui.mjs --source . --out <tui-dir>`.
