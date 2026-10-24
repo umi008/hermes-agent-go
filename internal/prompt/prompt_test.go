@@ -40,6 +40,16 @@ func TestBuildDefaultIdentityAndTimestamp(t *testing.T) {
 	}
 }
 
+func TestBuildPlacesGuidanceAndMemory(t *testing.T) {
+	p := Build(Inputs{HomeDir: t.TempDir(), Model: "m", Now: fixedNow(t), ToolGuidance: []string{"use memory"}, Memory: []string{"MEM", "USER"}})
+	if p.Stable != DefaultAgentIdentity+"\n\nuse memory" {
+		t.Fatalf("stable = %q", p.Stable)
+	}
+	if !strings.HasPrefix(p.Volatile, "MEM\n\nUSER\n\nConversation started:") {
+		t.Fatalf("volatile = %q", p.Volatile)
+	}
+}
+
 func TestBuildSoulReplacesIdentity(t *testing.T) {
 	home := t.TempDir()
 	write(t, filepath.Join(home, "SOUL.md"), "\uFEFF  You are Pip.  \n")
