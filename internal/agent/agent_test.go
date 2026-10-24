@@ -136,7 +136,11 @@ func TestParallelToolsKeepOrderAndErrors(t *testing.T) {
 		text("end"),
 	}}
 	var events []EventKind
-	a := New(Options{Client: c, Tools: fakeTools{barrier: &barrier}, OnEvent: func(e Event) { events = append(events, e.Kind) }})
+	a := New(Options{Client: c, Tools: fakeTools{barrier: &barrier}, OnEvent: func(e Event) {
+		if e.Kind != EventUsage {
+			events = append(events, e.Kind)
+		}
+	}})
 	if _, err := a.Run(context.Background(), "go"); err != nil {
 		t.Fatal(err)
 	}
@@ -225,5 +229,27 @@ func TestJitteredBackoff(t *testing.T) {
 		if d := JitteredBackoff(tt.attempt); d < tt.min || d > tt.max {
 			t.Errorf("attempt %d: %v not in [%v,%v]", tt.attempt, d, tt.min, tt.max)
 		}
+	}
+}
+
+func TestOnMessageAndUsageEvents(t *testing.T) {
+	c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){
+		toolCalls(llm.ToolCall{ID: "c1", Name: "echo", Arguments: json.RawMessage(`{}`)}), text("done"),
+	}}
+	var roles []string
+	usage := 0
+	a := New(Options{Client: c, Tools: fakeTools{},
+		OnMessage: func(m llm.Message) { roles = append(roles, string(m.Role)) },
+		OnEvent: func(e Event) {
+			if e.Kind == EventUsage {
+				usage++
+			}
+		},
+	})
+	if _, err := a.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(roles, ",") != "user,assistant,tool,assistant" || usage != 2 {
+		t.Fatalf("roles %v usage events %d", roles, usage)
 	}
 }

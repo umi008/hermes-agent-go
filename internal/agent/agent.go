@@ -39,6 +39,8 @@ const (
 	EventToolResult
 	EventRetry
 	EventSteer
+	// EventUsage reports the token usage of one model call.
+	EventUsage
 )
 
 // Event is a typed notification from the loop, delivered in order on the
@@ -50,6 +52,7 @@ type Event struct {
 	IsError  bool
 	Attempt  int
 	Err      error
+	Usage    llm.Usage
 }
 
 // Options configures an Agent.
@@ -70,7 +73,9 @@ type Options struct {
 	// Steer delivers user messages injected between iterations.
 	Steer   <-chan string
 	OnEvent func(Event)
-	Logger  *slog.Logger
+	// OnMessage sees every message as it joins the history, for persistence.
+	OnMessage func(llm.Message)
+	Logger    *slog.Logger
 }
 
 // Result summarizes one Run.
@@ -106,6 +111,15 @@ func (a *Agent) History() []llm.Message {
 	return append([]llm.Message(nil), a.history...)
 }
 
+func (a *Agent) record(msgs ...llm.Message) {
+	a.history = append(a.history, msgs...)
+	if a.opts.OnMessage != nil {
+		for _, m := range msgs {
+			a.opts.OnMessage(m)
+		}
+	}
+}
+
 func (a *Agent) emit(e Event) {
 	if a.opts.OnEvent != nil {
 		a.opts.OnEvent(e)
@@ -115,7 +129,7 @@ func (a *Agent) emit(e Event) {
 // Run sends one user message and loops until the model answers without
 // tool calls, the budget runs out, or ctx is done.
 func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
-	a.history = append(a.history, llm.Message{Role: llm.RoleUser, Content: input})
+	a.record(llm.Message{Role: llm.RoleUser, Content: input})
 	var res Result
 	var specs []llm.ToolSpec
 	if a.opts.Tools != nil {
@@ -131,13 +145,14 @@ func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
 			return res, err
 		}
 		res.Usage.Add(resp.Usage)
+		a.emit(Event{Kind: EventUsage, Usage: resp.Usage})
 		res.StopReason = resp.StopReason
 		res.Text = resp.Message.Content
-		a.history = append(a.history, resp.Message)
+		a.record(resp.Message)
 
 		calls := resp.Message.ToolCalls
 		if len(calls) > 0 {
-			a.history = append(a.history, a.runTools(ctx, calls)...)
+			a.record(a.runTools(ctx, calls)...)
 		}
 		steered := a.drainSteer()
 		if len(calls) == 0 && !steered {
@@ -157,7 +172,7 @@ func (a *Agent) drainSteer() bool {
 			if !ok {
 				return steered
 			}
-			a.history = append(a.history, llm.Message{Role: llm.RoleUser, Content: msg})
+			a.record(llm.Message{Role: llm.RoleUser, Content: msg})
 			a.emit(Event{Kind: EventSteer, Text: msg})
 			steered = true
 		default:
