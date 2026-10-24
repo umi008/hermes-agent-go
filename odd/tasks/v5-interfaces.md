@@ -11,11 +11,12 @@ Branch: `dev`. Delivery: small commits pushed to `dev`, merged to `main` at the 
 - S4 Gateway + Telegram (M5.4): "Gateway core (sessions per chat, approvals over chat); Telegram adapter".
 - S5 Discord (M5.5): "Discord adapter".
 - S6 TUI backend (M5.6): "`hermes-gateway-v1` WebSocket server for upstream `ui-tui` (decision pending, see TUI_PROTOCOL)".
-- S7 `skill_manage`, deferred from V4 T3: upstream hides it in single-query sessions, so it lands with the interactive CLI.
+- S7 `skill_manage`, deferred from V4 T3: upstream hides it in single-query sessions, so it lands with the interactive CLI. Scope: toolset `skills`; the advertised call shape is one `operations` array, and the legacy flat single-op shape is also accepted. Ops: `create`, `patch` (`old_string`/`new_string`/`replace_all`, optional `file_path`), `patch` with `content` (whole-file rewrite), `write_file`, `remove_file`, `delete` (sole op only). Batches apply in order and roll back every touched file when one op fails. Skipped deliberately: the staged write-approval gate, the JSONL audit ledger, the background-review preflight, the curator `absorbed_into` guard, the skill linter and `skills_sync`; no project tier, no plugin skills.
 
 Assumptions:
 - The slash-command subset is /new (/reset), /clear, /history, /retry, /undo [N], /title, /status, /model (show only), /tools, /toolsets, /skills, /help, /quit (/exit). Text follows upstream `locales/en.yaml` where the Go port has the same behavior.
 - No prompt_toolkit features: no line editing, completion, history file, prefill after /undo, or busy-input modes. Lines typed during a turn queue for after it.
+- One chat runtime process shares config, endpoint, tools and the store; each session owns its agent, recorder and output sink. The API server, cron and gateway verticals reuse that seam instead of building their own agent.
 
 ## Tasks
 
@@ -24,7 +25,7 @@ Assumptions:
 | T1 state rewind + empty-session drop | S1 | inline | done | 335726e |
 | T2 agent Reset/Rewind | S1 | inline | done | 1a381e7 |
 | T3 interactive CLI: REPL, slash commands, Ctrl-C, clarify | S1 | inline | done | 1a73d7a |
-| T4 skill_manage | S7 | inline | pending | |
+| T4 skill_manage | S7 | worker | in progress | |
 | T5 API server | S2 | inline | pending | |
 | T6 cron | S3 | inline | pending | |
 | T7 gateway core + Telegram | S4 | inline | pending | |

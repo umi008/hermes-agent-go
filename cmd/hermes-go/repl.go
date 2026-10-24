@@ -157,7 +157,7 @@ func (rt *chatRuntime) cmdClear(ctx context.Context, arg string) bool {
 }
 
 func (rt *chatRuntime) cmdHistory(context.Context, string) bool {
-	hist := rt.agent.History()
+	hist := rt.history()
 	if len(hist) == 0 {
 		rt.printf("(._.) No conversation history yet.\n")
 		return false
@@ -197,46 +197,46 @@ func (rt *chatRuntime) cmdUndo(ctx context.Context, arg string) bool {
 		n = v
 	}
 	users := 0
-	for _, m := range rt.agent.History() {
+	for _, m := range rt.history() {
 		if m.Role == llm.RoleUser {
 			users++
 		}
 	}
-	before := len(rt.agent.History())
+	before := len(rt.history())
 	text, ok := rt.rewind(ctx, n, "undo")
 	if !ok {
 		return false
 	}
-	undone, removed := min(n, users), before-len(rt.agent.History())
+	undone, removed := min(n, users), before-len(rt.history())
 	turns := "turn"
 	if undone != 1 {
 		turns = "turns"
 	}
 	rt.printf("(^_^)b Undid %d %s (%d message(s)). Backed up to: %q\n", undone, turns, removed, preview(text, 60))
-	rt.printf("  %d message(s) remaining in history.\n", len(rt.agent.History()))
+	rt.printf("  %d message(s) remaining in history.\n", len(rt.history()))
 	return false
 }
 
 // rewind drops the last n user turns on disk first, then in memory, as
 // upstream publishes the shorter history only after the durable rewind.
 func (rt *chatRuntime) rewind(ctx context.Context, n int, verb string) (string, bool) {
-	if len(rt.agent.History()) == 0 {
+	if len(rt.history()) == 0 {
 		rt.printf("(._.) No messages to %s.\n", verb)
 		return "", false
 	}
 	hasUser := false
-	for _, m := range rt.agent.History() {
+	for _, m := range rt.history() {
 		hasUser = hasUser || m.Role == llm.RoleUser
 	}
 	if !hasUser {
 		rt.printf("(._.) No user message found to %s.\n", verb)
 		return "", false
 	}
-	if err := rt.rec.rewind(ctx, n); err != nil {
+	if err := rt.recorder().rewind(ctx, n); err != nil {
 		rt.printf("(x_x) %s failed; history was not changed: %v\n", strings.ToUpper(verb[:1])+verb[1:], err)
 		return "", false
 	}
-	text, _, _ := rt.agent.Rewind(n)
+	text, _, _ := rt.currentSession().agent.Rewind(n)
 	return text, true
 }
 
@@ -245,7 +245,7 @@ func (rt *chatRuntime) cmdTitle(ctx context.Context, arg string) bool {
 		rt.printf("Usage: /title <name>\n")
 		return false
 	}
-	if err := rt.rec.title(ctx, arg); err != nil {
+	if err := rt.recorder().title(ctx, arg); err != nil {
 		rt.printf("(x_x) Could not set the title: %v\n", err)
 		return false
 	}
@@ -258,9 +258,9 @@ func (rt *chatRuntime) cmdStatus(context.Context, string) bool {
 	if id == "" {
 		id = "(not saved)"
 	}
-	u := rt.usage
+	u := rt.usageTotals()
 	rt.printf("Session:  %s\nModel:    %s (%s)\nMessages: %d\nTokens:   %d in, %d out, %d cache read, %d cache write\n",
-		id, rt.ep.Model, rt.ep.Provider, len(rt.agent.History()),
+		id, rt.ep.Model, rt.ep.Provider, len(rt.history()),
 		u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
 	return false
 }

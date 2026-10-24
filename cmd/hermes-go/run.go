@@ -12,14 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/home"
 	"github.com/umi008/hermes-agent-go/internal/hooks"
 	"github.com/umi008/hermes-agent-go/internal/llm"
 	"github.com/umi008/hermes-agent-go/internal/llm/anthropic"
 	"github.com/umi008/hermes-agent-go/internal/llm/openai"
-	"github.com/umi008/hermes-agent-go/internal/prompt"
 	"github.com/umi008/hermes-agent-go/internal/provider"
 	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/state"
@@ -121,39 +119,38 @@ func chat(ctx context.Context, args []string, env Env) int {
 // endpoint, tools and the session store. The agent and the recorder are
 // per session; /new replaces both.
 type chatRuntime struct {
-	env        Env
-	f          chatFlags
-	logger     *slog.Logger
-	cfg        *config.Config
-	lookup     config.LookupFunc
-	ep         provider.Endpoint
-	hermes     string
-	cwd        string
-	userHome   string
-	client     llm.Client
-	store      *state.Store
-	memory     *memory.Store
-	skills     *skills.Catalog
-	reg        *tools.Registry
-	tools      agent.ToolExecutor
+	env      Env
+	f        chatFlags
+	logger   *slog.Logger
+	cfg      *config.Config
+	lookup   config.LookupFunc
+	ep       provider.Endpoint
+	hermes   string
+	cwd      string
+	userHome string
+	client   llm.Client
+	store    *state.Store
+	memory   *memory.Store
+	skills   *skills.Catalog
+	reg      *tools.Registry
+	// Per-session hook wiring: the specs and the runner are shared, the
+	// session id is not, so each session wraps the registry itself.
+	hookSpecs  []hooks.Spec
+	hookRunner *hooks.Runner
+	approve    func(tool, message string) bool
 	closeTools func()
 
-	mu      sync.Mutex
-	rec     *recorder
-	agent   *agent.Agent
-	started time.Time
-	usage   llm.Usage     // this session's token totals
-	lines   <-chan string // interactive input, nil in single-query mode
+	mu    sync.Mutex
+	cur   *chatSession  // the REPL's live session; nil in a server runtime
+	lines <-chan string // interactive input, nil in single-query mode
 }
 
 // sessionID is the live session id, read by tools and hooks.
 func (rt *chatRuntime) sessionID() string {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if rt.rec == nil {
-		return ""
+	if s := rt.currentSession(); s != nil {
+		return s.id
 	}
-	return rt.rec.id
+	return ""
 }
 
 func runChat(ctx context.Context, f chatFlags, env Env) error {
@@ -181,6 +178,7 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		return err
 	}
 	defer rt.close()
+	rt.startSession(ctx)
 	if interactive {
 		return rt.repl(ctx)
 	}
@@ -251,92 +249,38 @@ func newChatRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logg
 		return nil, err
 	}
 	rt.reg, rt.closeTools = reg, closeTools
-	rt.tools = hooks.Wrap(reg, hooks.Options{
-		Specs:     hookSpecs(cfg, h.Dir, f.acceptHooks, lookup, logger),
-		Runner:    &hooks.Runner{GOOS: env.GOOS, Home: userHome, Logger: logger},
-		SessionID: rt.sessionID,
-		Cwd:       cwd,
-		Profile:   f.profile,
-		Approve: func(string, string) bool {
-			return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
-		},
-	})
-	rt.startSession(ctx)
+	rt.hookSpecs = hookSpecs(cfg, h.Dir, f.acceptHooks, lookup, logger)
+	rt.hookRunner = &hooks.Runner{GOOS: env.GOOS, Home: userHome, Logger: logger}
+	rt.approve = func(string, string) bool {
+		return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
+	}
 	return rt, nil
 }
 
-// startSession opens a fresh session: a new id, a new recorder and an
-// agent with a freshly built system prompt, as upstream new_session.
+// startSession opens a fresh session for the REPL: a new id, a new recorder
+// and an agent with a freshly built system prompt, as upstream new_session.
 func (rt *chatRuntime) startSession(ctx context.Context) {
-	started := rt.env.Now()
-	rec := newRecorder(ctx, rt.store, state.Session{
-		ID: state.NewSessionID(started), Source: "cli", Model: rt.ep.Model, Cwd: rt.cwd,
-	}, rt.logger)
-
-	var guidance, memBlocks []string
-	if hasTool(rt.reg, "memory") {
-		guidance = append(guidance, memory.Guidance)
-	}
-	if hasTool(rt.reg, "session_search") {
-		guidance = append(guidance, sessionSearchGuidance)
-	}
-	if rt.memory != nil {
-		memBlocks = rt.memory.PromptBlocks()
-	}
-	maxChars, _ := rt.cfg.Int("context_file_max_chars")
-	sys := prompt.Build(prompt.Inputs{
-		HomeDir:      rt.hermes,
-		Cwd:          rt.cwd,
-		MaxFileChars: maxChars,
-		Model:        rt.ep.Model,
-		Provider:     rt.ep.Provider,
-		Platform:     "cli",
-		Now:          started,
-		ToolGuidance: guidance,
-		Skills:       skillsIndex(rt.skills, rt.reg, rt.lookup),
-		Memory:       memBlocks,
-		Logger:       rt.logger,
-	})
-	maxTurns, _ := rt.cfg.Int("agent", "max_turns")
-	a := agent.New(agent.Options{
-		Client:     rt.client,
-		Compressor: newCompressor(rt.cfg, rt.client, rt.ep.Model, rt.env.Now, rt.logger),
-		Tools:      rt.tools,
-		Model:      rt.ep.Model,
-		System:     sys.Tiers(),
-		CacheTTL:   cacheTTL(rt.cfg),
-		MaxTurns:   maxTurns,
-		Logger:     rt.logger,
-		OnMessage:  func(m llm.Message) { rec.message(ctx, m) },
-		OnEvent: func(e agent.Event) {
-			switch {
-			case e.Kind == agent.EventUsage:
-				rt.usage.Add(e.Usage)
-				rec.usage(ctx, e.Usage)
-			case e.Kind == agent.EventText:
-				_, _ = io.WriteString(rt.env.Stdout, e.Text)
-			case e.Kind == agent.EventToolStart && rt.f.verbose && e.ToolCall != nil:
-				_, _ = fmt.Fprintf(rt.env.Stderr, "[tool] %s %s\n", e.ToolCall.Name, e.ToolCall.Arguments)
-			}
-		},
-	})
+	s := rt.newSession(ctx, "cli", rt.env.Stdout)
 	rt.mu.Lock()
-	rt.rec, rt.agent, rt.started, rt.usage = rec, a, started, llm.Usage{}
+	rt.cur = s
 	rt.mu.Unlock()
+}
+
+// currentSession is the REPL’s live session. It is nil in a server runtime,
+// where every session has its own owner and never touches rt.cur.
+func (rt *chatRuntime) currentSession() *chatSession {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.cur
 }
 
 // endSession closes the current session with reason.
 func (rt *chatRuntime) endSession(reason string) {
-	rt.mu.Lock()
-	rec := rt.rec
-	rt.mu.Unlock()
-	rec.end(reason)
+	rt.currentSession().end(reason)
 }
 
 func (rt *chatRuntime) close() {
-	if rt.agent != nil {
-		rt.endSession("cli_close")
-	}
+	rt.currentSession().end("cli_close")
 	if rt.closeTools != nil {
 		rt.closeTools()
 	}
@@ -347,9 +291,14 @@ func (rt *chatRuntime) close() {
 	}
 }
 
-// turn runs one user message through the agent and ends the reply line.
+// turn runs one user message through the current session and ends the reply
+// line, so the prompt starts on its own line.
 func (rt *chatRuntime) turn(ctx context.Context, input string) error {
-	res, err := rt.agent.Run(ctx, input)
+	s := rt.currentSession()
+	if s == nil {
+		return errors.New("no live session")
+	}
+	res, err := s.run(ctx, input)
 	if res.Text != "" && !strings.HasSuffix(res.Text, "\n") {
 		_, _ = io.WriteString(rt.env.Stdout, "\n")
 	}
