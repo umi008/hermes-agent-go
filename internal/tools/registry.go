@@ -198,3 +198,31 @@ func Decode(args json.RawMessage, v any) error {
 	}
 	return nil
 }
+
+// Without returns a registry minus the named tools.
+func (r *Registry) Without(names ...string) *Registry {
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	out := &Registry{tools: map[string]Tool{}}
+	for name, t := range r.tools {
+		if !drop[name] {
+			out.tools[name] = t
+		}
+	}
+	return out
+}
+
+// Has reports whether the registry holds the named tool.
+func (r *Registry) Has(name string) bool { return r.tools[name].Name != "" }
+
+// With returns a registry holding r's tools plus extra; a name clash is an
+// error, as in NewRegistry.
+func (r *Registry) With(extra ...Tool) (*Registry, error) {
+	all := make([]Tool, 0, len(r.tools)+len(extra))
+	for _, t := range r.tools {
+		all = append(all, t)
+	}
+	return NewRegistry(append(all, extra...)...)
+}

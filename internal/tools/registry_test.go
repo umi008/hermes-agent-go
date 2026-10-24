@@ -99,3 +99,24 @@ func TestExecute(t *testing.T) {
 		t.Errorf("error not capped: %d", len(obj["error"]))
 	}
 }
+
+func TestWithoutHasAndWith(t *testing.T) {
+	mk := func(name string) Tool {
+		return Tool{Name: name, Handler: func(context.Context, json.RawMessage) (string, error) { return "", nil }}
+	}
+	r, err := NewRegistry(mk("a"), mk("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	less := r.Without("a")
+	if less.Has("a") || !less.Has("b") || !r.Has("a") {
+		t.Error("Without must drop only from the copy")
+	}
+	more, err := r.With(mk("c"))
+	if err != nil || !more.Has("c") || r.Has("c") {
+		t.Errorf("With = %v", err)
+	}
+	if _, err := r.With(mk("a")); err == nil {
+		t.Error("With must reject a duplicate name")
+	}
+}

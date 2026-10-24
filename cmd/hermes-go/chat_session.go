@@ -99,19 +99,20 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 
 // toolExecutor wraps the shared registry with this session's hooks, so a hook
 // payload carries the id of the session that made the call. Without hooks the
-// registry is used as is, so servers pay nothing for the wrapper.
+// registry is used as is. Every call's context carries the session id, so
+// delegate_task can record its children under it.
 func (rt *chatRuntime) toolExecutor(s *chatSession) agent.ToolExecutor {
 	if len(rt.hookSpecs) == 0 {
-		return rt.reg
+		return sessionScoped{rt.reg, s}
 	}
-	return hooks.Wrap(rt.reg, hooks.Options{
+	return sessionScoped{hooks.Wrap(rt.reg, hooks.Options{
 		Specs:     rt.hookSpecs,
 		Runner:    rt.hookRunner,
 		SessionID: func() string { return s.id },
 		Cwd:       rt.cwd,
 		Profile:   rt.f.profile,
 		Approve:   rt.approve,
-	})
+	}), s}
 }
 
 // onEvent passes the event to the observer, streams text to the session

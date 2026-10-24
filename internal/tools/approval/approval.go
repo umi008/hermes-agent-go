@@ -104,8 +104,22 @@ func blocked(msg string) error {
 	return tools.ErrorWith(msg, map[string]any{"output": "", "exit_code": -1, "status": "blocked"})
 }
 
+type prompterKey struct{}
+
+// WithPrompter makes p answer the approvals of commands run under ctx, in
+// place of the gate's own prompter. Subagents use it to auto-deny or
+// auto-approve without asking the human, as upstream; their commands also
+// skip the parent's session approvals.
+func WithPrompter(ctx context.Context, p Prompter) context.Context {
+	return context.WithValue(ctx, prompterKey{}, p)
+}
+
 // Check is a terminal.Guard: nil lets the command run.
 func (g *Gate) Check(ctx context.Context, command string) error {
+	prompter, scoped := ctx.Value(prompterKey{}).(Prompter)
+	if !scoped {
+		prompter = g.o.Prompter
+	}
 	d := g.o.Detector
 	if desc, ok := d.Hardline(command); ok {
 		g.o.Logger.Warn("hardline command blocked", "description", desc)
@@ -118,11 +132,11 @@ func (g *Gate) Check(ctx context.Context, command string) error {
 		return nil
 	}
 	desc, ok := d.Dangerous(command)
-	if !ok || g.approved(desc) {
+	if !ok || g.approved(desc, !scoped) {
 		return nil
 	}
 	subject := fmt.Sprintf("Command flagged as dangerous (%s)", desc)
-	if g.o.Prompter == nil {
+	if prompter == nil {
 		if g.o.UnattendedApprove {
 			g.o.Logger.Info("auto-approved dangerous command in single-query mode", "description", desc)
 			return nil
@@ -131,7 +145,7 @@ func (g *Gate) Check(ctx context.Context, command string) error {
 			". Find an alternative approach that avoids this command. To allow dangerous commands in single-query mode, set " +
 			"approvals.single_query_mode: approve in config.yaml.")
 	}
-	choice, err := g.o.Prompter.Approve(ctx, Request{Command: command, Description: desc})
+	choice, err := prompter.Approve(ctx, Request{Command: command, Description: desc})
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -142,6 +156,9 @@ func (g *Gate) Check(ctx context.Context, command string) error {
 	case Once:
 		return nil
 	case Session, Always:
+		if scoped {
+			return nil
+		}
 		g.mu.Lock()
 		g.session[desc] = true
 		g.mu.Unlock()
@@ -155,10 +172,10 @@ func (g *Gate) Check(ctx context.Context, command string) error {
 	return blocked("BLOCKED: User denied this command." + stopCommand)
 }
 
-func (g *Gate) approved(key string) bool {
+func (g *Gate) approved(key string, withSession bool) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.session[key] || g.allowlist[key]
+	return (withSession && g.session[key]) || g.allowlist[key]
 }
 
 // allowedCommand matches command_allowlist command text or globs. Commands

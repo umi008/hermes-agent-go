@@ -259,3 +259,16 @@ func omittedHeadings(runes []rune, start, end int) []string {
 	}
 	return heads
 }
+
+// ProjectContext is the project context block for cwd, as upstream
+// build_context_files_prompt with skip_soul: the same discovery and
+// truncation as Build, for prompts that do not carry the identity tier.
+func ProjectContext(cwd string, maxChars int, logger *slog.Logger) string {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	if maxChars <= 0 {
+		maxChars = DefaultMaxFileChars
+	}
+	return ContextFiles(cwd, truncator{max: maxChars, logger: logger})
+}

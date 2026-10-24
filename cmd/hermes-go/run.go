@@ -324,6 +324,9 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 	rt.approve = func(string, string) bool {
 		return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
 	}
+	if err := rt.withDelegation(); err != nil {
+		return nil, err
+	}
 	return rt, nil
 }
 

@@ -48,7 +48,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Docker terminal backend | done | `tools/environments/docker.py` |
 | SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |
 | `todo_list`, `clarify` | done (clarify answered in the interactive CLI) | `agent/inline_tool_executors.py:253-313` |
-| `delegate_task` (subagents) | later | `tools/delegate_tool*.py` |
+| `delegate_task` (subagents) | done (synchronous batch, no background dispatch or list/steer/stop; leaf children only, sharing the parent's terminal session; no cost estimate or spill file) | `tools/delegate_tool*.py` |
 | `vision_analyze`, `image_generate`, `text_to_speech` | out | `tools/` |
 | Browser tools | out | `tools/browser*` |
 | `execute_code` | out | `tools/code_execution*` |

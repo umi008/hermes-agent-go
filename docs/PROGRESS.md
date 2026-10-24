@@ -174,6 +174,7 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | `internal/gateway/adapter.go` is the platform seam: adapters speak their wire protocol, the core owns sessions, queues and approvals | Telegram and Discord stay free of store and prompt code, and each adapter can land without touching the core. |
 | 2026-10-24 | `skill_manage` ports the advertised `operations` array with atomic rollback, minus the staged write gate, audit ledger, linter and curator guard | Those parts depend on Python machinery (staged approvals, a JSONL ledger, skill sync) the port does not have; the contract the model sees is preserved. |
 
+| 2026-10-24 | `delegate_task` runs children synchronously and they share the parent's terminal session | Upstream runs synchronously too when nobody consumes later results; a per-child terminal needs a backend per child, which the Docker backend makes costly. Children never see a human: approvals deny unless `delegation.subagent_auto_approve` is true. |
 | 2026-10-24 | The TUI backend speaks upstream's legacy wire first; `prompt.submit` refuses `submission_id` with 4000 as upstream's legacy contract does | The upstream TUI falls back to legacy delivery on that refusal, so the unmodified client works without the canonical handshake. |
 | 2026-10-24 | WebSocket on `github.com/coder/websocket` (v1.8.15) | Small, maintained, context-aware, no dependencies. |
 

@@ -25,7 +25,7 @@ Assumptions:
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 fallback providers | S1 | inline | done | see Log |
-| T2 delegate_task | S2 | inline | planned | |
+| T2 delegate_task | S2 | inline | done | see Log |
 | T3 auxiliary routing | S3 | inline | planned | |
 | T4 shell hook events | S4 | inline | planned | |
 | T5 MCP resources, prompts, reconnect | S5 | inline | planned | |
@@ -39,3 +39,4 @@ Assumptions:
 
 - L1 (2026-10-24, owner): "Continuemos, sigamos trabajando en que tenga todas las funcionalidades de hermes"
 - L2 T1: `provider.FallbackChain` merges `fallback_providers` then `fallback_model`, drops entries without provider and model, dedupes by provider, model and base URL, and skips unresolvable entries with a warning. `agent.Options.Fallbacks`: 429 and 402 switch at once and arm the primary cooldown (60 s doubling, 4 h cap); 401, 403 and 404 switch at once; 408 and 5xx after the retries; a plain 400 never. Each switch restarts the retry budget, skips an entry equal to the current backend, and emits upstream's "⚠️ Model fallback: ..." notice; the next turn restores the primary with "✅ Primary model restored: ..." unless the cooldown runs. Not ported: classifier opt-in 400s (format errors), provider `reset_at`, `fallback.min_switch_reset_seconds`, credential pools, the init banner. Checks: `go test -race ./...`, vet, golangci-lint green.
+- L3 T2: `internal/tools/delegate` ports `delegate_task` (toolset `delegation`): the `tasks` array or legacy `goal`/`context`, `delegation.max_concurrent_children` (10) caps the batch, children run in parallel and return upstream's result entries (status and exit reason rules, tokens, `tool_trace` without raw data, `cost_status: unknown`) with the 24000-char head/tail summary cap. The child gets upstream's leaf system prompt, the goal as its first message, the registry minus `delegate_task`, `clarify`, `memory`, `send_message`, `cronjob_manage`, `delegation.max_iterations` (250), a `subagent` session row under the caller's session, and approvals that deny unless `delegation.subagent_auto_approve`. `delegation.model`/`provider`/`base_url`/`api_key` pin another model. Not ported: background dispatch and `action` list/steer/stop, orchestrator children, cost estimates, the summary spill file, per-child terminal sessions. Checks: `go test -race ./...`, vet, golangci-lint green.
