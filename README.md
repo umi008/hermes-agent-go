@@ -4,7 +4,7 @@ A scoped Go port of [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 by Nous Research. This is a learning and portfolio project, not a replacement
 for upstream.
 
-**Status:** V1 Core, V2 Tools, V3 State and V4 Extensibility done (`hermes-go chat -q` with tools, session history in SQLite, `session_search`, `memory`, context compression, skills, MCP servers, shell hooks). V5 Interfaces in progress: interactive `hermes-go chat` (REPL, slash commands, Ctrl-C) is done.
+**Status:** V1 Core, V2 Tools, V3 State, V4 Extensibility and V5 Interfaces done: `hermes-go chat` is interactive (REPL, slash commands, Ctrl-C) or one-shot with `-q`, `hermes-go serve` speaks the OpenAI-compatible API, `hermes-go cron` runs `jobs.json` schedules, `hermes-go gateway` serves Telegram and Discord, and the agent can write its own skills with `skill_manage`. Only the TUI backend is still open (see [docs/TUI_PROTOCOL.md](docs/TUI_PROTOCOL.md)).
 
 **Goals:**
 
@@ -47,6 +47,20 @@ Rust would be a fine choice too. For this project, though, Go fits better:
 Rust's real advantages are memory safety without a GC, a richer type system,
 and finer control over performance. They matter less for a glue-heavy,
 network-bound agent than shipping speed and simplicity do.
+
+## Usage
+
+```sh
+hermes-go chat                       # interactive REPL; -q "..." for one message
+hermes-go serve --addr 127.0.0.1:8787  # OpenAI-compatible API
+hermes-go cron add --schedule 30m --prompt "status report"
+hermes-go cron serve                 # tick every 60s
+hermes-go gateway                    # Telegram: gateway.telegram.token or TELEGRAM_BOT_TOKEN
+hermes-go gateway --platform discord # Discord: discord.token or DISCORD_BOT_TOKEN
+```
+
+Every command reads the Hermes home (`HERMES_HOME`, or `-p <profile>`) and its
+`config.yaml`. Run `hermes-go <command> -h` for its flags.
 
 ## Docs
 

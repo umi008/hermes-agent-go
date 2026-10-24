@@ -81,15 +81,25 @@ compatibility with the Hermes home where practical.
 - **V5 Interfaces (in progress).** Feature doc:
   [odd/tasks/v5-interfaces.md](../odd/tasks/v5-interfaces.md).
   - M5.1 interactive CLI: `hermes-go chat` without `-q` is a REPL with a slash-command subset; Ctrl-C cancels the running turn and exits when idle; `clarify` and dangerous-command approval are answered from the terminal; `/retry` and `/undo` soft-archive turns in the store like upstream.
+  - Session seam: one `chatRuntime` per process serves many `chatSession`s, each with its own id, recorder, agent, output sink and hooks. The API server, cron and the gateways open one session per request, job or chat, and the REPL keeps its own in `rt.cur`.
+  - `internal/gateway/adapter.go` is the platform contract: adapters speak their wire protocol (Telegram long polling, Discord Gateway WebSocket), the core owns sessions, per-chat queues and approvals inside the chat.
+  - `skill_manage`: create, patch (targeted or whole-file), write_file, remove_file and delete, applied as atomic `operations` batches and registered only for interactive sessions, as upstream.
+  - M5.2 API server: `hermes-go serve` answers `/v1/models` and `/v1/chat/completions`, streaming and not, behind a bearer token from `api_server.api_key` or `HERMES_API_KEY`, with one session per request.
+  - M5.3 cron: `hermes-go cron` round-trips `jobs.json` preserving keys the port does not model, parses interval, 5-field cron and one-shot schedules, ticks behind `cron/.tick.lock` with at-most-once dispatch, and writes and prunes `cron/output/`.
+  - M5.4 and M5.5 gateways: `hermes-go gateway` serves Telegram (long polling) and Discord (Gateway WebSocket), one session per chat, a per-chat queue, chunked replies and approvals answered in the chat.
 
 ## Known V5 gaps (deliberate, tracked)
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
 - `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
+- API server: no `/v1/responses`, `/v1/runs` or `/api/sessions`, no conversation resume (one session per request), and usage is reported only on the non-streaming path.
+- Cron: no delivery targets, quotas, dependency chains, `context_from` or thread handoff; one job runs at a time, and a job never resumes a conversation.
+- Gateway: no pairing flow, delivery ledger, rooms or webhooks; approvals are text menus rather than inline keyboards; no media, voice or topics. A chat session lives as long as the process.
+- Server sessions leave `${HERMES_SESSION_ID}` and the memory tool's current session empty: those read one current session per runtime, which only the REPL sets.
 
 ## Known V4 gaps (deliberate, tracked)
 
-- Skills are read-only: `skill_manage` waits for the interactive CLI (V5), as upstream hides it in single-query runs. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
+- Skills: `skill_manage` writes them from interactive sessions (V5); `chat -q` still sees them read-only, as upstream. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
 - MCP: no resources or prompts utility tools, no reconnect or backoff, no OAuth, no sampling, no const-union schema collapse, no server-name toolset alias. Images and audio become a text notice instead of a cached file. Globs use `path.Match`, which differs from `fnmatch` on `/`.
 - Hooks: only `pre_tool_call` and `post_tool_call` fire; other valid events are logged and skipped. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
 
@@ -122,7 +132,8 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V5 Interfaces: `skill_manage`, then M5.2 API server, M5.3 cron, M5.4 gateway + Telegram (see the feature doc).
+- V5 Interfaces: complete except the TUI backend (T9), whose decision is still open (see [TUI_PROTOCOL.md](TUI_PROTOCOL.md)).
+- V6 Packaging: Dockerfile, goreleaser and GitHub Actions CI.
 
 ## Local dev notes
 
@@ -145,6 +156,9 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | MCP client on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0) | Official SDK; it ships stdio, streamable HTTP and SSE client transports. |
 | 2026-10-24 | Shell hooks never prompt or write the allowlist | `chat -q` has no TTY to ask, and the allowlist is upstream's file in the user's home. |
 | 2026-10-24 | V1 adopted the OPEN_QUESTIONS recommendations as assumptions: binary `hermes-go`, the same home resolution as upstream (read-only in V1), both provider families, CI in M1.1 | The owner was away. Every one of these is reversible. |
+| 2026-10-24 | One `chatRuntime` per process, one `chatSession` per conversation; hooks wrap the shared registry per session | The API server, cron and the gateways run many conversations over one store and one tool registry, and a hook payload must name the session that called the tool. The REPL keeps `rt.cur` and its behavior is unchanged. |
+| 2026-10-24 | `internal/gateway/adapter.go` is the platform seam: adapters speak their wire protocol, the core owns sessions, queues and approvals | Telegram and Discord stay free of store and prompt code, and each adapter can land without touching the core. |
+| 2026-10-24 | `skill_manage` ports the advertised `operations` array with atomic rollback, minus the staged write gate, audit ledger, linter and curator guard | Those parts depend on Python machinery (staged approvals, a JSONL ledger, skill sync) the port does not have; the contract the model sees is preserved. |
 
 ## Open questions
 

@@ -209,7 +209,16 @@ enabled_toolsets, workdir
   - Missed one-shots get a 120 s grace period.
   - The ticker runs every 60 s.
 
-## 8. Other files (out of scope until needed)
+## 8. OpenAI-compatible API server
+
+- **Routes (implemented):** `GET /v1/models` and `POST /v1/chat/completions`, streamed and not. Everything else returns the OpenAI 404 envelope.
+- **Auth:** `Authorization: Bearer <token>`. The token is `api_server.api_key` from `config.yaml`, else `HERMES_API_KEY` from `.env` or the environment. A non-loopback address refuses to start without one.
+- **Bodies:** OpenAI request fields (`model`, `messages`, `stream`, `temperature`, …); fields the port does not implement are accepted and ignored, as upstream's routes tolerate loose clients.
+- **Responses:** the OpenAI envelope, and errors as `{"error":{"message","type","code"}}` with 400, 401 or 500.
+- **Streaming:** `text/event-stream`, one `data: {...}` chunk per delta with `choices[0].delta.content`, a final chunk carrying `finish_reason`, then `data: [DONE]`. As upstream (`gateway/platforms/api_server_openai_routes.py`).
+- **Sessions:** one per request. The response carries `X-Hermes-Session-Id`, so a client can correlate the request with the stored session; there is no resume path yet.
+
+## 9. Other files (out of scope until needed)
 
 - **`auth.json`:** `{"version":1,"providers":{...}}`, guarded by `auth.lock` (`hermes_cli/auth.py:493,737`). The per-provider shapes are **UNVERIFIED**.
 - **`.anthropic_oauth.json`:** the Anthropic OAuth grant.
