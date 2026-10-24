@@ -43,7 +43,8 @@ type Env struct {
 }
 
 // version is the release version, set at build time with
-// -ldflags "-X main.version=v1.2.3". Development builds report "dev".
+// -ldflags "-X main.version=1.2.3" (GoReleaser passes the tag without its
+// leading v). Development builds report "dev".
 var version = "dev"
 
 const usage = `Usage: hermes-go <command> [flags]
