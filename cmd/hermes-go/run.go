@@ -45,9 +45,12 @@ type Env struct {
 const usage = `Usage: hermes-go <command> [flags]
 
 Commands:
-  chat    Chat interactively, or send one message with -q
+  chat     Chat interactively, or send one message with -q
+  serve    Serve the OpenAI-compatible HTTP API
+  cron     Manage and run scheduled jobs
+  gateway  Serve a chat platform (Telegram, Discord)
 
-Run "hermes-go chat -h" for chat flags.
+Run "hermes-go <command> -h" for that command's flags.
 `
 
 // Run executes the CLI and returns the exit code.
@@ -59,8 +62,15 @@ func Run(ctx context.Context, args []string, env Env) int {
 		}
 		return 0
 	}
-	if args[0] == "chat" {
+	switch args[0] {
+	case "chat":
 		return chat(ctx, args[1:], env)
+	case "serve":
+		return serve(ctx, args[1:], env)
+	case "cron":
+		return cronCmd(ctx, args[1:], env)
+	case "gateway":
+		return gatewayCmd(ctx, args[1:], env)
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "hermes-go: unknown command %q\n\n%s", args[0], usage)
 	return 2
