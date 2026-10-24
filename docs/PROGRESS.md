@@ -95,6 +95,11 @@ compatibility with the Hermes home where practical.
   - `.github/workflows/release.yml`: a `v*` tag runs the tests, then GoReleaser, and publishes a GitHub release.
   - `Dockerfile`: distroless static, nonroot, home in the `/data` volume; CI builds it and smoke-tests `version`, `cron list` and `cron add`.
 
+- **V7 Parity (2026-10-24, in progress on `dev`; plan in `odd/tasks/v7-parity.md`).**
+  - T1 fallback providers: `fallback_providers` and legacy `fallback_model` form a chain; rate limit, billing, auth and missing-model errors switch at once, transient errors after the retries; the primary comes back next turn unless its rate-limit cooldown runs.
+  - T2 `delegate_task`: synchronous parallel subagents with upstream's child prompt, blocked tools, iteration budget, `subagent` session rows under the caller and upstream's result entries; child approvals deny unless `delegation.subagent_auto_approve`.
+  - T3 auxiliary routing: the compression summary uses `auxiliary.compression` (pinned route or model override) with its timeout and 300 s floor.
+
 ## Known V6 gaps (deliberate, tracked)
 
 - No container image is published; the image is built in CI only. No Homebrew tap, Scoop bucket, signing or SBOM.
@@ -124,7 +129,7 @@ compatibility with the Hermes home where practical.
 - No session lineage (compression children, branches); each session is its own root. Compaction summaries are not persisted.
 - `session_search`: no cross-profile reads, no title match, no CJK, ASCII `\w` in the sanitizer.
 - `memory`: no threat scan, no cross-process file lock, no per-turn consolidation cap, no write approval gate.
-- Compression: no model-metadata context lookup (config or 256K default), no lean session log or anchors, no secret redaction, no per-tool digest formatters, no image retirement, no cooldowns, `compression.max_attempts` is fixed at 3, the summary uses the main model.
+- Compression: no model-metadata context lookup (config or 256K default), no lean session log or anchors, no secret redaction, no per-tool digest formatters, no image retirement, no cooldowns, `compression.max_attempts` is fixed at 3.
 
 ## Known V2 gaps (deliberate, tracked)
 
@@ -146,8 +151,9 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V5 Interfaces: done on `dev`. A later TUI slice can add the canonical wire, resume and slash commands.
-- Merge `dev` into `main` and tag the first release once the owner approves.
+- V7 remaining tasks, in order: T4 other shell hook events, T5 MCP resources/prompts tools and reconnect, T6 API `/v1/responses`, `/v1/runs`, `/api/sessions`, T7 smart approval, T8 TUI canonical wire, T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
+- Rows marked `out` in PARITY stay out unless the owner reopens them.
+- Merge `dev` into `main` and tag a release when the owner approves.
 
 ## Local dev notes
 
