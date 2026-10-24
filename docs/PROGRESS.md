@@ -42,7 +42,7 @@ compatibility with the Hermes home where practical.
   - [ROADMAP.md](ROADMAP.md)
   - [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)
 
-- **V1 Core (2026-10-24, on `dev`, awaiting owner review).** Feature doc:
+- **V1 Core (2026-10-24, merged to `main`).** Feature doc:
   [odd/tasks/v1-core.md](../odd/tasks/v1-core.md).
   - `internal/home`: home and profile resolution.
   - `internal/config`: `config.yaml` deep merge, `${VAR}` refs, and the `.env` overlay.
@@ -53,6 +53,24 @@ compatibility with the Hermes home where practical.
   - `internal/prompt`: 3 tiers, `SOUL.md`, context files, and truncation.
   - `internal/agent`: the loop, with retries, steering, and parallel tools.
   - `cmd/hermes-go`: `hermes-go chat -q "..." [-p profile] [-m model] [--provider name] [-v]`.
+
+- **V2 Tools (2026-10-24, merged to `main`).** Feature doc:
+  [odd/tasks/v2-tools.md](../odd/tasks/v2-tools.md).
+  - `internal/tools`: registry, toolsets, availability checks, upstream result caps and error shape.
+  - `internal/tools/files`: `read_file`, `write_file`, `patch`, `search_files`, with stale-read guards.
+  - `internal/tools/terminal`: `terminal` with persistent cwd and env, `process_manage`, local and Docker backends.
+  - `internal/tools/approval`: hardline and dangerous-command detection (upstream patterns via `regexp2`), the approval gate.
+  - `internal/tools/todo`, `internal/tools/clarify`, `internal/tools/web` (Tavily).
+  - `cmd/hermes-go`: tools wired into `chat`, `--toolsets` filter, `-v` logs tool calls.
+
+## Known V2 gaps (deliberate, tracked)
+
+- No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
+- No smart (LLM) approval and no gateway approvals; `chat -q` has no prompter, so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
+- `patch` ports exact and whitespace-tolerant matching only; upstream's further fuzzy strategies are not ported. No `.gitignore` filtering in `search_files`.
+- Docker: killing `docker exec` does not stop the process inside the container; the container is removed on exit.
+- Command deobfuscation is limited to upstream's normalization; no parser-limit block.
+- `clarify` returns "not available" until the interactive CLI (V5).
 
 ## Known V1 gaps (deliberate, tracked)
 
@@ -66,8 +84,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- The owner reviews V1 and approves the merge of `dev` into `main`.
-- Then V2 Tools (see ROADMAP.md).
+- V3 State (see ROADMAP.md).
 
 ## Local dev notes
 
@@ -84,6 +101,8 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | Anthropic via official `anthropic-sdk-go` (v1.84.0); OpenAI-compatible via plain `net/http` | Official SDK where one exists; the OpenAI-compatible path must tolerate loose schemas from OpenRouter, Ollama, and LM Studio. |
 | 2026-10-24 | SDK retries disabled; the agent loop owns retry policy | One retry policy for every provider, as upstream (`max_retries=0`). |
 | 2026-10-24 | An explicit base URL with no provider resolves to `custom` | Upstream's default (OpenRouter) would send a local server's traffic to the wrong key. This deviates from upstream. |
+| 2026-10-24 | Approval patterns run on `github.com/dlclark/regexp2` with a 250 ms timeout that fails closed | 18 upstream patterns need lookarounds or possessive quantifiers RE2 lacks; parity is checked against 116 upstream verdicts. |
+| 2026-10-24 | Web tools use Tavily only | One backend keeps V2 small; others are plugins upstream. |
 | 2026-10-24 | V1 adopted the OPEN_QUESTIONS recommendations as assumptions: binary `hermes-go`, the same home resolution as upstream (read-only in V1), both provider families, CI in M1.1 | The owner was away. Every one of these is reversible. |
 
 ## Open questions

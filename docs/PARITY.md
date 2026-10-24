@@ -39,15 +39,15 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| Tool registry, toolsets, `check_fn` | planned | `tools/registry.py`, `toolsets.py`, `model_tools.py` |
-| `read_file`, `write_file`, `patch`, `search_files` | planned | `tools/file_*.py` (UNVERIFIED names) |
-| `terminal` (local backend), `process_manage` | planned | `tools/terminal_tool*.py`, `tools/environments/local.py` |
-| Dangerous-command detection and approval | planned | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
+| Tool registry, toolsets, `check_fn` | done | `tools/registry.py`, `toolsets.py`, `model_tools.py` |
+| `read_file`, `write_file`, `patch`, `search_files` | partial (no fuzzy patch strategies beyond exact/whitespace, no .gitignore) | `tools/file_*.py` (UNVERIFIED names) |
+| `terminal` (local backend), `process_manage` | done | `tools/terminal_tool*.py`, `tools/environments/local.py` |
+| Dangerous-command detection and approval | done (116-command parity fixture; CLI prompter in V5) | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
 | Smart (LLM) approval gate | later | `tools/approval.py:764` |
-| `web_search`, `web_extract` | planned (one backend) | `tools/web_*.py`, `plugins/web/` |
-| Docker terminal backend | planned | `tools/environments/docker.py` |
+| `web_search`, `web_extract` | done (Tavily only) | `tools/web_*.py`, `plugins/web/` |
+| Docker terminal backend | done | `tools/environments/docker.py` |
 | SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |
-| `todo_list`, `clarify` | planned | `agent/inline_tool_executors.py:253-313` |
+| `todo_list`, `clarify` | done (clarify has no UI until V5) | `agent/inline_tool_executors.py:253-313` |
 | `delegate_task` (subagents) | later | `tools/delegate_tool*.py` |
 | `vision_analyze`, `image_generate`, `text_to_speech` | out | `tools/` |
 | Browser tools | out | `tools/browser*` |

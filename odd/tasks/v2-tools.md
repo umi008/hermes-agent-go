@@ -20,14 +20,14 @@ Assumptions: Tavily is the single web backend; patch fuzzy strategies beyond exa
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 internal/tools registry | S1 | inline | todo | |
-| T2 file tools | S2 | inline | todo | |
-| T3 terminal + process_manage | S3 | inline | todo | |
-| T4 approval | S4 | inline | todo | |
-| T5 todo_list + clarify | S5 | inline | todo | |
-| T6 web (Tavily) | S6 | inline | todo | |
-| T7 docker backend | S7 | inline | todo | |
-| T8 CLI wiring | S8 | inline | todo | |
+| T1 internal/tools registry | S1 | inline | done | af4bcfb |
+| T2 file tools | S2 | inline | done | dcd0679 |
+| T3 terminal + process_manage | S3 | inline | done | c5a21b7 |
+| T4 approval | S4 | inline | done | 282427b |
+| T5 todo_list + clarify | S5 | inline | done | f780850 |
+| T6 web (Tavily) | S6 | inline | done | a8e0797 |
+| T7 docker backend | S7 | inline | done | 18fb19c |
+| T8 CLI wiring | S8 | inline | done | c3ea22f |
 
 Route evidence: the parent writes sequentially; units are independent but small enough that inline is cheaper than starting writers.
 
@@ -35,3 +35,4 @@ Route evidence: the parent writes sequentially; units are independent but small 
 
 - L1 (2026-10-24, owner): "si" (approving V1 and the start of V2 Tools).
 - L2 Upstream map from a read-only explorer: registry `tools/registry.py:691`, error shape `:1057`, caps `tools/budget_config.py:10-20`, file tools `tools/file_tools.py:1151-1428`, terminal `tools/terminal_tool.py:1580-1721`, process `process_registry.py:2574-2623`, approval `tools/approval_detection.py:107-482`, `tools/approval.py:1151-1194`, todo `tools/todo_tool.py:229-336`, clarify `tools/clarify_tool.py:136-200`, web Tavily `plugins/web/tavily/provider.py`.
+- 2026-10-24: T1-T8 done; gates and CI green (docker integration test runs on ubuntu CI). V2 merged to main.
