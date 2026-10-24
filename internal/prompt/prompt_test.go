@@ -41,11 +41,12 @@ func TestBuildDefaultIdentityAndTimestamp(t *testing.T) {
 }
 
 func TestBuildPlacesGuidanceAndMemory(t *testing.T) {
-	p := Build(Inputs{HomeDir: t.TempDir(), Model: "m", Now: fixedNow(t), ToolGuidance: []string{"use memory"}, Memory: []string{"MEM", "USER"}})
-	if p.Stable != DefaultAgentIdentity+"\n\nuse memory" {
+	p := Build(Inputs{HomeDir: t.TempDir(), Model: "m", Now: fixedNow(t), ToolGuidance: []string{"use memory.", "use search."}, Skills: "## Skills", Memory: []string{"MEM", "USER"}})
+	// Upstream joins tool guidance with spaces into one part.
+	if p.Stable != DefaultAgentIdentity+"\n\nuse memory. use search." {
 		t.Fatalf("stable = %q", p.Stable)
 	}
-	if !strings.HasPrefix(p.Volatile, "MEM\n\nUSER\n\nConversation started:") {
+	if !strings.HasPrefix(p.Volatile, "## Skills\n\nMEM\n\nUSER\n\nConversation started:") {
 		t.Fatalf("volatile = %q", p.Volatile)
 	}
 }
