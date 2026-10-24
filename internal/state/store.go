@@ -484,3 +484,42 @@ func uuid4() string {
 	h := hex.EncodeToString(b[:])
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
+
+// AnchoredView is MessagesAround filtered to user and assistant rows (the
+// anchor always kept) plus up to bookend non-empty user/assistant messages
+// strictly before and after the window, as upstream get_anchored_view.
+type AnchoredView struct {
+	Window
+	Start, End []Message
+}
+
+// Anchored returns the anchored view, or an empty one for a foreign anchor.
+func (s *Store) Anchored(ctx context.Context, sessionID string, anchor int64, window, bookend int) (AnchoredView, error) {
+	w, err := s.MessagesAround(ctx, sessionID, anchor, window)
+	if err != nil || len(w.Messages) == 0 {
+		return AnchoredView{}, err
+	}
+	v := AnchoredView{Window: Window{Before: w.Before, After: w.After}}
+	for _, m := range w.Messages {
+		if m.ID == anchor || m.Role == "user" || m.Role == "assistant" {
+			v.Messages = append(v.Messages, m)
+		}
+	}
+	if bookend <= 0 {
+		return v, nil
+	}
+	const roles = " AND role IN ('user','assistant') AND length(content) > 0"
+	if v.Start, err = s.queryMessages(ctx, "SELECT "+messageCols+" FROM messages WHERE session_id = ? AND id < ?"+roles+" ORDER BY id ASC LIMIT ?",
+		sessionID, w.Messages[0].ID, bookend); err != nil {
+		return AnchoredView{}, err
+	}
+	end, err := s.queryMessages(ctx, "SELECT "+messageCols+" FROM messages WHERE session_id = ? AND id > ?"+roles+" ORDER BY id DESC LIMIT ?",
+		sessionID, w.Messages[len(w.Messages)-1].ID, bookend)
+	if err != nil {
+		return AnchoredView{}, err
+	}
+	for i := len(end) - 1; i >= 0; i-- {
+		v.End = append(v.End, end[i])
+	}
+	return v, nil
+}

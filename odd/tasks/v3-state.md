@@ -21,9 +21,9 @@ Assumptions:
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 internal/state store | S1 | inline | todo | |
-| T2 search | S2 | inline | todo | |
-| T3 session_search tool | S3 | inline | todo | |
+| T1 internal/state store | S1 | inline | done | e862998 |
+| T2 search | S2 | inline | done | e862998 |
+| T3 session_search tool | S3 | inline | in progress (code, no tests, not wired) | |
 | T4 memory tool | S4 | inline | todo | |
 | T5 compression | S5 | inline | todo | |
 | T6 CLI wiring | S6 | inline | todo | |
@@ -34,3 +34,4 @@ Route evidence: the parent writes sequentially. Every unit depends on T1, so non
 
 - L1 (2026-10-24, owner): "me voy a dormir, continúa trabajando por todas las fases hasta las 7am, ahí es tu límite, no preguntes o esperes algo de mi atención o respuesta hasta ese momento, incluso si llegas a la M6 ship, tienes full control y decision"
 - 2026-10-24: the upstream schema was dumped from a fixture DB that upstream `SessionDB` created in a scratch dir (throwaway uv env, upstream repo untouched).
+- 2026-10-24: usage limit reached during T3. session_search compiles and passes lint but has no tests and is not wired into the CLI yet. Next: T3 tests, then T4-T6.
