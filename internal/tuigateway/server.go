@@ -267,8 +267,10 @@ func (s *Server) detach(c *conn) {
 		}
 	}
 	s.mu.Unlock()
+	// Closing waits for each running turn; do it off the read loop so a turn
+	// slow to honour cancellation never stalls the connection.
 	for _, ls := range owned {
-		ls.close()
+		go ls.close()
 	}
 }
 
@@ -398,7 +400,7 @@ func (s *Server) closeSession(id string) map[string]any {
 	delete(s.sessions, id)
 	s.mu.Unlock()
 	if ok {
-		ls.close()
+		go ls.close()
 	}
 	return map[string]any{"closed": ok, "messages": []any{}}
 }
