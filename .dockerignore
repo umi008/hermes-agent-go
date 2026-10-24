@@ -1,0 +1,6 @@
+.git
+.codegraph
+dist
+bin
+*.exe
+odd

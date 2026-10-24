@@ -1,0 +1,45 @@
+# GoReleaser v2 config. Tag a commit on main with vX.Y.Z and push the tag;
+# .github/workflows/release.yml runs `goreleaser release --clean`.
+# Local dry run: goreleaser release --snapshot --clean
+version: 2
+
+project_name: hermes-go
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: hermes-go
+    main: ./cmd/hermes-go
+    binary: hermes-go
+    env:
+      # Pure Go (modernc SQLite), so the binaries are static.
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
