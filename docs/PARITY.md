@@ -33,7 +33,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Agent loop: iterations, retries, interrupt, steer | done | `agent/conversation_loop.py`, `agent/interrupt_control.py` |
 | Observable tool-call event stream | done | `agent/stream_delivery.py` |
 | `<think>` scrubbing across deltas | done | `agent/conversation_loop.py:354-361` |
-| Auxiliary side-LLM routing | later | `agent/auxiliary_client.py` |
+| Auxiliary side-LLM routing | partial (`auxiliary.compression`: provider, model, base_url, api_key, key_env, api_mode, timeout with the 300 s floor; the port has no other side calls; no auto discovery chain, per-task fallback chain, extra_body or reasoning_effort) | `agent/auxiliary_client.py` |
 
 ## Tools (V2)
 

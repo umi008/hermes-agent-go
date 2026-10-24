@@ -81,7 +81,7 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 	maxTurns, _ := rt.cfg.Int("agent", "max_turns")
 	s.agent = agent.New(agent.Options{
 		Client:     rt.client,
-		Compressor: newCompressor(rt.cfg, rt.client, rt.ep.Model, rt.env.Now, rt.logger),
+		Compressor: newCompressor(rt.cfg, rt.lookup, rt.primaryRoute(), rt.env.Now, rt.logger),
 		Tools:      rt.toolExecutor(s),
 		Model:      rt.ep.Model,
 		Provider:   rt.ep.Provider,

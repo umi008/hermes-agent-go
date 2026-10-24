@@ -112,6 +112,11 @@ func containsSet(list, name string) bool {
 	return false
 }
 
+// primaryRoute is the runtime's main model.
+func (rt *chatRuntime) primaryRoute() agent.Route {
+	return agent.Route{Client: rt.client, Provider: rt.ep.Provider, Model: rt.ep.Model, BaseURL: rt.ep.BaseURL}
+}
+
 // childRoute is the parent model unless delegation.model, provider,
 // base_url or api_key pin another one.
 func (rt *chatRuntime) childRoute() (agent.Route, error) {
@@ -122,7 +127,7 @@ func (rt *chatRuntime) childRoute() (agent.Route, error) {
 		APIKey:   rt.cfg.String("delegation", "api_key"),
 	}
 	if o == (provider.Overrides{}) {
-		return agent.Route{Client: rt.client, Provider: rt.ep.Provider, Model: rt.ep.Model, BaseURL: rt.ep.BaseURL}, nil
+		return rt.primaryRoute(), nil
 	}
 	if o.Provider == "" && o.BaseURL == "" {
 		o.Provider = rt.ep.Provider
@@ -165,7 +170,7 @@ func (rt *chatRuntime) runChild(ctx context.Context, t delegate.Task, route agen
 	var usage llm.Usage
 	a := agent.New(agent.Options{
 		Client:     route.Client,
-		Compressor: newCompressor(rt.cfg, route.Client, route.Model, rt.env.Now, rt.logger),
+		Compressor: newCompressor(rt.cfg, rt.lookup, route, rt.env.Now, rt.logger),
 		Tools:      exec,
 		Model:      route.Model,
 		Provider:   route.Provider,
