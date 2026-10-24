@@ -16,8 +16,8 @@ depends on them.
 3. **First provider to support.** Options are OpenRouter (OpenAI-compatible),
    the Anthropic API directly, or a local Ollama or LM Studio. This decides the
    first end-to-end target in M1.4.
-4. **TUI strategy.** The options are in TUI_PROTOCOL: (A) explicit URL, (B) a
-   bootstrap shim, or (C) a native Go TUI. Deciding is only needed before M5.6.
+4. **TUI strategy.** Decided 2026-10-24: option A, the explicit URL, so the
+   upstream TUI runs unmodified (see TUI_PROTOCOL).
 5. **CI timing.** Should a minimal CI workflow land in M1.1, before V6?
 
 ## Spikes

@@ -30,7 +30,7 @@ Assumptions:
 | T6 cron | S3 | worker, finished inline | done | see Log |
 | T7 gateway core + Telegram | S4 | worker, finished inline | done | see Log |
 | T8 Discord | S5 | worker, finished inline | done | see Log |
-| T9 TUI backend | S6 | decision pending | pending | |
+| T9 TUI backend | S6 | inline | in progress | |
 
 Route evidence: the parent owns the shared seams (`cmd/hermes-go/chat_session.go`, `internal/gateway/adapter.go`, the `run.go` dispatch and the docs) and writes them inline. T4-T8 run in parallel as workers on disjoint surfaces: T4 `internal/skills` + the tools registration, T5 `internal/apiserver` + `serve.go`, T6 `internal/cron` + `cron.go`, T7 `internal/gateway` (except `adapter.go`) + `internal/telegram` + `gateway.go`, T8 `internal/discord`. No worker edits `run.go`; each reports the dispatch snippet the parent pastes. All five workers died on the same model error; the parent finished their partial work inline in small steps instead of relaunching in a loop.
 
@@ -44,3 +44,5 @@ Route evidence: the parent owns the shared seams (`cmd/hermes-go/chat_session.go
 - 2026-10-24: cron at-most-once: the worker persisted the tick instant as `next_run_at` before dispatch, so a crash mid-run replayed the job. Fixed to upstream's semantics: persist the next occurrence after the tick before firing.
 - 2026-10-24: `gateway --platform discord` was missing although `internal/discord` was done; wired with a test over the platform selection and its token errors. README gained a Usage section.
 - 2026-10-24: verification: `go test ./...` green, `go vet` clean, `golangci-lint` 0 issues; smoke of `serve -h`, `cron -h|list|add`, `gateway -h` against a scratch `HERMES_HOME`. Telegram and Discord were not exercised against live APIs (no tokens); their tests use fake servers.
+- L3 (2026-10-24, owner, on the T9 options A/B/C): "\"A\" creo, lo q sea más parecido a hermes original, recuerda q así es el. plan"
+- 2026-10-24: T9 takes option A: `hermes-go` serves `/api/ws` on loopback and the upstream Ink TUI attaches through `HERMES_TUI_GATEWAY_URL`, unmodified. Fidelity to upstream wins over a smaller surface.
