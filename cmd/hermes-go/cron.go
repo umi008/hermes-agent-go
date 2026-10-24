@@ -308,7 +308,7 @@ func newCronRuntime(ctx context.Context, env Env, profile string, verbose bool) 
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewTextHandler(env.Stderr, &slog.HandlerOptions{Level: level}))
-	return newChatRuntime(ctx, chatFlags{profile: profile, verbose: verbose, querySet: true}, env, logger, false)
+	return newChatRuntime(ctx, chatFlags{profile: profile, verbose: verbose, querySet: true}, env, logger, noHumans)
 }
 
 // cronRunner is the ticker's dispatcher: it runs the job's prompt through the

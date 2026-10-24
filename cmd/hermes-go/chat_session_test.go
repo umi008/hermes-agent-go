@@ -21,7 +21,7 @@ func serverRuntime(t *testing.T, configURL string) *chatRuntime {
 	t.Helper()
 	f := newHome(t, configURL)
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(), logger, false)
+	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(), logger, noHumans)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestSessionsHookPayloadCarriesOwnID(t *testing.T) {
 		"\nhooks:\n  pre_tool_call:\n    - command: "+string(command)+"\n")
 	f.vars["HERMES_ACCEPT_HOOKS"] = "1"
 	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(),
-		slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), noHumans)
 	if err != nil {
 		t.Fatal(err)
 	}

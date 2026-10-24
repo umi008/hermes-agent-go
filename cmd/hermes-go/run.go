@@ -22,6 +22,8 @@ import (
 	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/state"
 	"github.com/umi008/hermes-agent-go/internal/tools"
+	"github.com/umi008/hermes-agent-go/internal/tools/approval"
+	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 	"github.com/umi008/hermes-agent-go/internal/tools/memory"
 )
 
@@ -192,7 +194,11 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		return errors.New("chat needs a message: -q \"...\"")
 	}
 
-	rt, err := newChatRuntime(ctx, f, env, logger, interactive)
+	humans := noHumans
+	if interactive {
+		humans = terminalHumans
+	}
+	rt, err := newChatRuntime(ctx, f, env, logger, humans)
 	if err != nil {
 		return err
 	}
@@ -214,20 +220,53 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 	return rt.turn(ctx, query)
 }
 
-func newChatRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger, interactive bool) (_ *chatRuntime, err error) {
-	h, err := home.Resolver{GOOS: env.GOOS, Getenv: env.Getenv, UserHomeDir: env.UserHomeDir}.Resolve(f.profile)
+// humansFunc returns who answers clarify and dangerous-command approvals for a
+// runtime. A nil asker or prompter means nobody can be asked: clarify fails
+// closed and approvals follow approvals.single_query_mode. An asker also
+// marks the runtime interactive, which registers skill_manage as upstream.
+type humansFunc func(rt *chatRuntime) (clarify.Asker, approval.Prompter)
+
+// noHumans is the runtime of an unattended command (-q, serve, cron).
+func noHumans(*chatRuntime) (clarify.Asker, approval.Prompter) { return nil, nil }
+
+// terminalHumans asks on the interactive chat's own input lines.
+func terminalHumans(rt *chatRuntime) (clarify.Asker, approval.Prompter) {
+	return &lineAsker{rt: rt}, &linePrompter{rt: rt}
+}
+
+func newChatRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger, humans humansFunc) (*chatRuntime, error) {
+	h, cfg, lookup, err := loadRuntimeConfig(f, env, logger)
 	if err != nil {
 		return nil, err
 	}
+	return buildRuntime(ctx, f, env, logger, h, cfg, lookup, humans)
+}
+
+// loadRuntimeConfig resolves the profile and reads .env and config.yaml. The
+// gateways call it on their own because they need gateway.* before a runtime
+// exists.
+func loadRuntimeConfig(f chatFlags, env Env, logger *slog.Logger) (home.Home, *config.Config, config.LookupFunc, error) {
+	h, err := home.Resolver{GOOS: env.GOOS, Getenv: env.Getenv, UserHomeDir: env.UserHomeDir}.Resolve(f.profile)
+	if err != nil {
+		return home.Home{}, nil, nil, err
+	}
 	dotenv, err := config.LoadDotenv(filepath.Join(h.Dir, ".env"))
 	if err != nil {
-		return nil, err
+		return home.Home{}, nil, nil, err
 	}
 	lookup := config.Overlay(dotenv, env.LookupEnv)
 	cfg, err := config.Load(filepath.Join(h.Dir, "config.yaml"), config.Options{Lookup: lookup, Logger: logger})
 	if err != nil {
-		return nil, err
+		return home.Home{}, nil, nil, err
 	}
+	return h, cfg, lookup, nil
+}
+
+// buildRuntime resolves the endpoint and opens the store, memory, skills and
+// tools every session of the process shares.
+func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger,
+	h home.Home, cfg *config.Config, lookup config.LookupFunc, humans humansFunc) (_ *chatRuntime, err error) {
+
 	ep, err := provider.Resolve(cfg, lookup, provider.Overrides{Provider: f.provider, Model: f.model})
 	if err != nil {
 		return nil, err
@@ -260,9 +299,7 @@ func newChatRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logg
 		toolsets: f.toolsets, logger: logger, memory: rt.memory, skills: rt.skills, profile: f.profile,
 		store: rt.store, sessionID: rt.sessionID,
 	}
-	if interactive {
-		deps.asker, deps.prompter = &lineAsker{rt: rt}, &linePrompter{rt: rt}
-	}
+	deps.asker, deps.prompter = humans(rt)
 	reg, closeTools, err := buildTools(ctx, deps)
 	if err != nil {
 		return nil, err

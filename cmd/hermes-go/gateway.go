@@ -7,17 +7,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/discord"
 	"github.com/umi008/hermes-agent-go/internal/gateway"
-	"github.com/umi008/hermes-agent-go/internal/home"
-	"github.com/umi008/hermes-agent-go/internal/hooks"
 	"github.com/umi008/hermes-agent-go/internal/provider"
 	"github.com/umi008/hermes-agent-go/internal/telegram"
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
+	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 )
 
 // gatewayFlags are `hermes-go gateway`'s own flags. The rest of chatFlags is
@@ -77,7 +75,7 @@ func runGateway(ctx context.Context, f gatewayFlags, env Env) error {
 		return fmt.Errorf("unknown platform %q (telegram, discord)", f.platform)
 	}
 
-	h, cfg, lookup, err := loadGatewayConfig(f.chatFlags, env, logger)
+	h, cfg, lookup, err := loadRuntimeConfig(f.chatFlags, env, logger)
 	if err != nil {
 		return err
 	}
@@ -113,7 +111,8 @@ func runGateway(ctx context.Context, f gatewayFlags, env Env) error {
 	if err != nil {
 		return err
 	}
-	if rt, err = newGatewayRuntime(ctx, f.chatFlags, env, logger, h, cfg, lookup, core); err != nil {
+	if rt, err = buildRuntime(ctx, f.chatFlags, env, logger, h, cfg, lookup,
+		func(*chatRuntime) (clarify.Asker, approval.Prompter) { return nil, core }); err != nil {
 		return err
 	}
 	defer rt.close()
@@ -164,80 +163,3 @@ func (g gatewaySession) Run(ctx context.Context, input string) error {
 }
 
 func (g gatewaySession) End(reason string) { g.s.end(reason) }
-
-// loadGatewayConfig resolves the profile and reads config the way the runtime
-// does, because the gateway needs gateway.* before any session exists.
-func loadGatewayConfig(f chatFlags, env Env, logger *slog.Logger) (home.Home, *config.Config, config.LookupFunc, error) {
-	h, err := home.Resolver{GOOS: env.GOOS, Getenv: env.Getenv, UserHomeDir: env.UserHomeDir}.Resolve(f.profile)
-	if err != nil {
-		return home.Home{}, nil, nil, err
-	}
-	dotenv, err := config.LoadDotenv(filepath.Join(h.Dir, ".env"))
-	if err != nil {
-		return home.Home{}, nil, nil, err
-	}
-	lookup := config.Overlay(dotenv, env.LookupEnv)
-	cfg, err := config.Load(filepath.Join(h.Dir, "config.yaml"), config.Options{Lookup: lookup, Logger: logger})
-	if err != nil {
-		return home.Home{}, nil, nil, err
-	}
-	return h, cfg, lookup, nil
-}
-
-// newGatewayRuntime builds the runtime a gateway serves every chat from. It
-// mirrors newChatRuntime with one difference: the dangerous-command gate asks
-// through the gateway core, so an approval arrives inside the chat that ran the
-// command. The interactive constructor plugs in the CLI's own prompter there.
-//
-// Keep this in step with newChatRuntime (run.go). The follow-up is to give
-// newChatRuntime a prompter parameter and delete this copy.
-func newGatewayRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger,
-	h home.Home, cfg *config.Config, lookup config.LookupFunc, prompter approval.Prompter) (_ *chatRuntime, err error) {
-
-	ep, err := provider.Resolve(cfg, lookup, provider.Overrides{Provider: f.provider, Model: f.model})
-	if err != nil {
-		return nil, err
-	}
-	logger.Debug("resolved endpoint", "home", h.Dir, "provider", ep.Provider, "model", ep.Model, "base_url", ep.BaseURL)
-
-	cwd, err := env.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("working directory: %w", err)
-	}
-	userHome, err := env.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("user home: %w", err)
-	}
-	rt := &chatRuntime{
-		env: env, f: f, logger: logger, cfg: cfg, lookup: lookup, ep: ep,
-		hermes: h.Dir, cwd: cwd, userHome: userHome, client: newClient(ep),
-	}
-	rt.store = openStore(ctx, h.Dir, env.Now, logger)
-	rt.memory = openMemory(h.Dir, cfg, logger)
-	rt.skills = openSkills(h.Dir, userHome, cfg, lookup, logger)
-	defer func() {
-		if err != nil {
-			rt.close()
-		}
-	}()
-
-	deps := toolDeps{
-		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
-		toolsets: f.toolsets, logger: logger, memory: rt.memory, skills: rt.skills, profile: f.profile,
-		store: rt.store, sessionID: rt.sessionID,
-		// Approvals ask inside the chat. clarify has no chat asker yet, so it
-		// fails closed rather than reaching the terminal.
-		prompter: prompter,
-	}
-	reg, closeTools, err := buildTools(ctx, deps)
-	if err != nil {
-		return nil, err
-	}
-	rt.reg, rt.closeTools = reg, closeTools
-	rt.hookSpecs = hookSpecs(cfg, h.Dir, f.acceptHooks, lookup, logger)
-	rt.hookRunner = &hooks.Runner{GOOS: env.GOOS, Home: userHome, Logger: logger}
-	rt.approve = func(string, string) bool {
-		return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
-	}
-	return rt, nil
-}

@@ -69,7 +69,7 @@ func runServe(ctx context.Context, f serveFlags, env Env) error {
 	}
 	logger := slog.New(slog.NewTextHandler(env.Stderr, &slog.HandlerOptions{Level: level}))
 
-	rt, err := newChatRuntime(ctx, f.chatFlags, env, logger, false)
+	rt, err := newChatRuntime(ctx, f.chatFlags, env, logger, noHumans)
 	if err != nil {
 		return err
 	}

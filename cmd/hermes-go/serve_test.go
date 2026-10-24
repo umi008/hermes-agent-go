@@ -56,7 +56,7 @@ func apiTestServer(t *testing.T, f *fakeEnv, key string) *httptest.Server {
 
 func apiTestServerWith(t *testing.T, f *fakeEnv, key string, logger *slog.Logger) *httptest.Server {
 	t.Helper()
-	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(), logger, false)
+	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(), logger, noHumans)
 	if err != nil {
 		t.Fatal(err)
 	}
