@@ -192,6 +192,14 @@ func envRefName(ref string) (string, bool) {
 	return ref, true
 }
 
+// FromMap wraps an already merged and expanded tree.
+func FromMap(raw map[string]any) *Config {
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	return &Config{raw: raw}
+}
+
 // Raw returns the merged tree. Callers must not mutate it.
 func (c *Config) Raw() map[string]any { return c.raw }
 
