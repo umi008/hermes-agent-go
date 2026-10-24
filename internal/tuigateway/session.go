@@ -149,6 +149,8 @@ func (ls *liveSession) emit(e agent.Event) {
 		ls.conn.event("status.update", ls.id, map[string]any{
 			"kind": "status", "text": fmt.Sprintf("retrying (attempt %d): %v", e.Attempt, e.Err),
 		})
+	case agent.EventFallback:
+		ls.conn.event("status.update", ls.id, map[string]any{"kind": "warn", "text": e.Text})
 	case agent.EventCompress:
 		text := "context compacted"
 		if e.Err != nil {

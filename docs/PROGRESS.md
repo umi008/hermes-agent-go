@@ -137,7 +137,6 @@ compatibility with the Hermes home where practical.
 
 ## Known V1 gaps (deliberate, tracked)
 
-- `fallback_providers` is not wired. Only the primary provider is used.
 - There is no Retry-After honoring. Backoff is upstream's jittered exponential (5s base, 120s cap).
 - There is no `max_tokens` continuation. A truncated reply is returned as is.
 - The timestamp line covers the same-day form only. The "Today's date" rebuild line and the Session ID trailer are not ported.

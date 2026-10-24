@@ -84,6 +84,9 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 		Compressor: newCompressor(rt.cfg, rt.client, rt.ep.Model, rt.env.Now, rt.logger),
 		Tools:      rt.toolExecutor(s),
 		Model:      rt.ep.Model,
+		Provider:   rt.ep.Provider,
+		BaseURL:    rt.ep.BaseURL,
+		Fallbacks:  rt.fallbacks,
 		System:     sys.Tiers(),
 		CacheTTL:   cacheTTL(rt.cfg),
 		MaxTurns:   maxTurns,
@@ -123,6 +126,8 @@ func (s *chatSession) onEvent(ctx context.Context, e agent.Event) {
 		s.rec.usage(ctx, e.Usage)
 	case e.Kind == agent.EventText:
 		_, _ = io.WriteString(s.out, e.Text)
+	case e.Kind == agent.EventFallback:
+		_, _ = fmt.Fprintln(s.rt.env.Stderr, e.Text)
 	case e.Kind == agent.EventToolStart && s.rt.f.verbose && e.ToolCall != nil:
 		_, _ = fmt.Fprintf(s.rt.env.Stderr, "[tool] %s %s\n", e.ToolCall.Name, e.ToolCall.Arguments)
 	}

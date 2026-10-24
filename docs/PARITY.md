@@ -23,7 +23,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 | `config.yaml` load and deep-merge, unknown keys preserved | done | `hermes_cli/config.py:1487,2088,2476` |
 | Config migrations | out (read v ≥ 12, warn) | `hermes_cli/config_migrations.py` |
 | `.env` secrets | done | `agent/secret_scope.py:294-309` |
-| Provider resolution (`model`, `providers`, `fallback_providers`) | partial (no `fallback_providers`) | `plugins/model-providers/`, `agent/agent_init*.py` |
+| Provider resolution (`model`, `providers`, `fallback_providers`) | done (fallback chain: rate limit, billing, auth and missing model switch at once, transient errors after the retries; turn-scoped with the primary rate-limit cooldown; no credential pools, `min_switch_reset_seconds` or provider `reset_at`) | `plugins/model-providers/`, `agent/agent_init*.py` |
 | OpenAI chat completions client, streaming | done | `agent/transports/chat_completions.py` |
 | Anthropic Messages client, streaming | done | `agent/transports/anthropic.py`, `agent/anthropic_adapter.py` |
 | Anthropic prompt caching (4 breakpoints, TTL) | done | `agent/prompt_caching.py` |

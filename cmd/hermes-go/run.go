@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/home"
 	"github.com/umi008/hermes-agent-go/internal/hooks"
@@ -153,10 +154,12 @@ type chatRuntime struct {
 	cwd      string
 	userHome string
 	client   llm.Client
-	store    *state.Store
-	memory   *memory.Store
-	skills   *skills.Catalog
-	reg      *tools.Registry
+	// fallbacks is the resolved fallback_providers chain.
+	fallbacks []agent.Route
+	store     *state.Store
+	memory    *memory.Store
+	skills    *skills.Catalog
+	reg       *tools.Registry
 	// Per-session hook wiring: the specs and the runner are shared, the
 	// session id is not, so each session wraps the registry itself.
 	hookSpecs  []hooks.Spec
@@ -287,6 +290,14 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 	rt := &chatRuntime{
 		env: env, f: f, logger: logger, cfg: cfg, lookup: lookup, ep: ep,
 		hermes: h.Dir, cwd: cwd, userHome: userHome, client: newClient(ep),
+	}
+	chain, warns := provider.FallbackChain(cfg, lookup)
+	for _, w := range warns {
+		logger.Warn(w)
+	}
+	for _, fb := range chain {
+		rt.fallbacks = append(rt.fallbacks, agent.Route{Client: newClient(fb), Provider: fb.Provider, Model: fb.Model, BaseURL: fb.BaseURL})
+		logger.Debug("fallback provider", "provider", fb.Provider, "model", fb.Model, "base_url", fb.BaseURL)
 	}
 	rt.store = openStore(ctx, h.Dir, env.Now, logger)
 	rt.memory = openMemory(h.Dir, cfg, logger)

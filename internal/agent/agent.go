@@ -43,6 +43,9 @@ const (
 	EventUsage
 	// EventCompress reports a context compaction; Err is set when it failed.
 	EventCompress
+	// EventFallback carries upstream's notice when the agent switches to a
+	// fallback model or restores the primary.
+	EventFallback
 )
 
 // MaxCompressions caps compactions per Run, so a summary that does not
@@ -72,9 +75,18 @@ type Event struct {
 
 // Options configures an Agent.
 type Options struct {
-	Client    llm.Client
-	Tools     ToolExecutor
-	Model     string
+	Client llm.Client
+	Tools  ToolExecutor
+	Model  string
+	// Provider and BaseURL name the primary backend in fallback notices and
+	// let the chain skip an entry that resolves to it.
+	Provider string
+	BaseURL  string
+	// Fallbacks are tried in order when the primary is exhausted, as
+	// upstream fallback_providers. Fallback is turn-scoped.
+	Fallbacks []Route
+	// Now is the clock for the rate-limit cooldown; nil uses time.Now.
+	Now       func() time.Time
 	System    []string
 	MaxTokens int
 	CacheTTL  string
@@ -111,6 +123,7 @@ type Agent struct {
 	// lastPrompt is the prompt size the provider reported for the last call.
 	lastPrompt int
 	noted      bool
+	fallback   fallbackState
 }
 
 // New builds an agent.
@@ -124,7 +137,12 @@ func New(o Options) *Agent {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Agent{opts: o}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	a := &Agent{opts: o}
+	a.fallback.active = a.primary()
+	return a
 }
 
 // History returns a copy of the conversation so far.
@@ -150,6 +168,7 @@ func (a *Agent) emit(e Event) {
 // Run sends one user message and loops until the model answers without
 // tool calls, the budget runs out, or ctx is done.
 func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
+	a.restorePrimary()
 	a.record(llm.Message{Role: llm.RoleUser, Content: input})
 	var res Result
 	var specs []llm.ToolSpec
@@ -242,7 +261,6 @@ func (a *Agent) drainSteer() bool {
 
 func (a *Agent) call(ctx context.Context, specs []llm.ToolSpec) (llm.Response, error) {
 	req := llm.Request{
-		Model:     a.opts.Model,
 		System:    a.opts.System,
 		Messages:  a.history,
 		Tools:     specs,
@@ -258,9 +276,17 @@ func (a *Agent) call(ctx context.Context, specs []llm.ToolSpec) (llm.Response, e
 		}
 	}
 	for attempt := 1; ; attempt++ {
-		resp, err := a.opts.Client.Stream(ctx, req, onEvent)
+		req.Model = a.fallback.active.Model
+		resp, err := a.fallback.active.Client.Stream(ctx, req, onEvent)
 		if err == nil {
 			return resp, nil
+		}
+		// Upstream switches at once on rate limits, billing, auth and a
+		// missing model, and after the retries on transient failures; a
+		// switch restarts the retry budget on the new backend.
+		if f, ok := classifyFailover(err); ok && ctx.Err() == nil && (f.eager || attempt >= a.opts.MaxAttempts) && a.activateFallback(f) {
+			attempt = 0
+			continue
 		}
 		if attempt >= a.opts.MaxAttempts || !llm.IsRetryable(err) {
 			return llm.Response{}, fmt.Errorf("agent: model call: %w", err)
