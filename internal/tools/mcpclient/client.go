@@ -86,6 +86,7 @@ type conn struct {
 	server  Server
 	session *mcp.ClientSession
 	tools   []*mcp.Tool
+	stop    context.CancelFunc
 }
 
 // Connect dials every server at once. A server that fails to connect is
@@ -131,14 +132,23 @@ func dial(ctx context.Context, s Server, o Options) (*conn, error) {
 	if timeout <= 0 {
 		timeout = DefaultConnectTimeout
 	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	// The session context outlives dial: an SSE stream is a GET bound to
+	// it, so the connect timeout cancels it only while connecting.
+	sctx, stop := context.WithCancel(ctx)
+	timer := time.AfterFunc(timeout, stop)
 	client := mcp.NewClient(&mcp.Implementation{Name: "hermes-agent-go", Version: o.Version}, nil)
-	session, err := client.Connect(cctx, t, nil)
+	session, err := client.Connect(sctx, t, nil)
+	if !timer.Stop() && err == nil {
+		_ = session.Close()
+		err = context.DeadlineExceeded
+	}
 	if err != nil {
+		stop()
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	c := &conn{server: s, session: session}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	c := &conn{server: s, session: session, stop: stop}
 	if session.InitializeResult() != nil && session.InitializeResult().Capabilities != nil &&
 		session.InitializeResult().Capabilities.Tools == nil {
 		return c, nil
@@ -146,6 +156,7 @@ func dial(ctx context.Context, s Server, o Options) (*conn, error) {
 	for tool, err := range session.Tools(cctx, nil) {
 		if err != nil {
 			_ = session.Close()
+			stop()
 			return nil, fmt.Errorf("list tools: %w", err)
 		}
 		if (filter{include: s.Include, includeSet: s.Include != nil, exclude: s.Exclude}).allows(tool.Name) {
@@ -222,6 +233,7 @@ func (m *Manager) Close() error {
 		if err := c.session.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close MCP server %s: %w", c.server.Name, err))
 		}
+		c.stop()
 	}
 	return errors.Join(errs...)
 }

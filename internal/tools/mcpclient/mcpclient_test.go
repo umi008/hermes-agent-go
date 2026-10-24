@@ -171,3 +171,15 @@ func TestPublicMeta(t *testing.T) {
 		}
 	}
 }
+
+func TestSSETransport(t *testing.T) {
+	srv := httptest.NewServer(mcp.NewSSEHandler(func(*http.Request) *mcp.Server { return testServer(t) }, nil))
+	t.Cleanup(srv.Close)
+	m := Connect(t.Context(), Options{Servers: []Server{{Name: "old", URL: srv.URL, Transport: "sse"}}})
+	t.Cleanup(func() { _ = m.Close() })
+	ts := byName(m.Tools())
+	out, err := ts["mcp__old__echo"].Handler(t.Context(), json.RawMessage(`{"text":"s"}`))
+	if err != nil || !strings.HasPrefix(out, `{"result":"echo: s"`) {
+		t.Fatalf("%s %v", out, err)
+	}
+}
