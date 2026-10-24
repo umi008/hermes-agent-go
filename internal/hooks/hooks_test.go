@@ -197,6 +197,8 @@ type recordExec struct {
 	err   error
 }
 
+func (r *recordExec) Specs() []llm.ToolSpec { return nil }
+
 func (r *recordExec) Execute(_ context.Context, call llm.ToolCall) (string, error) {
 	r.calls = append(r.calls, call)
 	return r.out, r.err

@@ -11,8 +11,9 @@ import (
 	"github.com/umi008/hermes-agent-go/internal/tools"
 )
 
-// Executor runs a tool call; agent.ToolExecutor has the same shape.
+// Executor lists and runs tools; agent.ToolExecutor has the same shape.
 type Executor interface {
+	Specs() []llm.ToolSpec
 	Execute(ctx context.Context, call llm.ToolCall) (string, error)
 }
 
@@ -51,6 +52,9 @@ type executor struct {
 	next Executor
 	o    Options
 }
+
+// Specs lists the wrapped tools unchanged.
+func (e *executor) Specs() []llm.ToolSpec { return e.next.Specs() }
 
 func (e *executor) Execute(ctx context.Context, call llm.ToolCall) (string, error) {
 	var args map[string]any

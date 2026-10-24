@@ -14,6 +14,7 @@ import (
 	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/home"
+	"github.com/umi008/hermes-agent-go/internal/hooks"
 	"github.com/umi008/hermes-agent-go/internal/llm"
 	"github.com/umi008/hermes-agent-go/internal/llm/anthropic"
 	"github.com/umi008/hermes-agent-go/internal/llm/openai"
@@ -63,7 +64,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 
 type chatFlags struct {
 	query, profile, model, provider, toolsets string
-	verbose                                   bool
+	verbose, acceptHooks                      bool
 }
 
 func parseChat(args []string, stderr io.Writer) (chatFlags, error) {
@@ -82,6 +83,7 @@ func parseChat(args []string, stderr io.Writer) (chatFlags, error) {
 	fs.StringVar(&f.provider, "provider", "", "provider override: "+strings.Join(provider.Names(), ", "))
 	fs.StringVar(&f.toolsets, "toolsets", "", "comma-separated toolsets to enable (default all)")
 	fs.BoolVar(&f.verbose, "v", false, "log debug output to stderr")
+	fs.BoolVar(&f.acceptHooks, "accept-hooks", false, "run shell hooks from config.yaml without the allowlist")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
@@ -172,6 +174,17 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 		return err
 	}
 	defer closeTools()
+	sessionID := deps.sessionID
+	executor := hooks.Wrap(reg, hooks.Options{
+		Specs:     hookSpecs(cfg, h.Dir, f.acceptHooks, lookup, logger),
+		Runner:    &hooks.Runner{GOOS: env.GOOS, Home: userHome, Logger: logger},
+		SessionID: func() string { return sessionID },
+		Cwd:       cwd,
+		Profile:   f.profile,
+		Approve: func(string, string) bool {
+			return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
+		},
+	})
 
 	var guidance, memBlocks []string
 	if hasTool(reg, "memory") {
@@ -203,7 +216,7 @@ func runChat(ctx context.Context, f chatFlags, env Env) error {
 	a := agent.New(agent.Options{
 		Client:     client,
 		Compressor: newCompressor(cfg, client, ep.Model, env.Now, logger),
-		Tools:      reg,
+		Tools:      executor,
 		Model:      ep.Model,
 		System:     sys.Tiers(),
 		CacheTTL:   cacheTTL(cfg),
