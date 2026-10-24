@@ -1,0 +1,122 @@
+# Parity matrix
+
+This matrix tracks which upstream Hermes Agent features the Go port covers, which
+vertical owns each one, and where the upstream code lives.
+
+Status values:
+
+- `planned`: in scope, not started yet.
+- `partial`: in scope, partly implemented.
+- `done`: in scope and implemented.
+- `out`: out of scope for now.
+- `later`: in scope, but deferred past the first pass of its vertical.
+
+Update the Status column as verticals land. Upstream paths are relative to
+`NousResearch/hermes-agent` at `bda3a363e9`.
+
+## Core (V1)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| Hermes home resolution (`HERMES_HOME`, `LOCALAPPDATA` on Windows, `HERMES_DATA_DIR_SUFFIX`) | planned | `hermes_constants.py:51-58,188-246` |
+| Profiles (`profiles/<name>`, `active_profile`, name regex) | planned | `hermes_cli/profiles.py`, `hermes_constants.py:93-101,395` |
+| `config.yaml` load and deep-merge, unknown keys preserved | planned | `hermes_cli/config.py:1487,2088,2476` |
+| Config migrations | out (read v ≥ 12, warn) | `hermes_cli/config_migrations.py` |
+| `.env` secrets | planned | `agent/secret_scope.py:294-309` |
+| Provider resolution (`model`, `providers`, `fallback_providers`) | planned (subset) | `plugins/model-providers/`, `agent/agent_init*.py` |
+| OpenAI chat completions client, streaming | planned | `agent/transports/chat_completions.py` |
+| Anthropic Messages client, streaming | planned | `agent/transports/anthropic.py`, `agent/anthropic_adapter.py` |
+| Anthropic prompt caching (4 breakpoints, TTL) | planned | `agent/prompt_caching.py` |
+| OpenAI Responses / Codex, Bedrock, Vertex, Gemini native | out | `agent/transports/codex.py`, `bedrock.py`, … |
+| Credential pool, OAuth providers | out | `agent/credential_pool*.py`, `hermes_cli/auth.py` |
+| System prompt builder (3 tiers, SOUL.md, context files) | planned | `agent/system_prompt.py:736`, `agent/prompt_builder.py:1679` |
+| Agent loop: iterations, retries, interrupt, steer | planned | `agent/conversation_loop.py`, `agent/interrupt_control.py` |
+| Observable tool-call event stream | planned | `agent/stream_delivery.py` |
+| `<think>` scrubbing across deltas | planned | `agent/conversation_loop.py:354-361` |
+| Auxiliary side-LLM routing | later | `agent/auxiliary_client.py` |
+
+## Tools (V2)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| Tool registry, toolsets, `check_fn` | planned | `tools/registry.py`, `toolsets.py`, `model_tools.py` |
+| `read_file`, `write_file`, `patch`, `search_files` | planned | `tools/file_*.py` (UNVERIFIED names) |
+| `terminal` (local backend), `process_manage` | planned | `tools/terminal_tool*.py`, `tools/environments/local.py` |
+| Dangerous-command detection and approval | planned | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
+| Smart (LLM) approval gate | later | `tools/approval.py:764` |
+| `web_search`, `web_extract` | planned (one backend) | `tools/web_*.py`, `plugins/web/` |
+| Docker terminal backend | planned | `tools/environments/docker.py` |
+| SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |
+| `todo_list`, `clarify` | planned | `agent/inline_tool_executors.py:253-313` |
+| `delegate_task` (subagents) | later | `tools/delegate_tool*.py` |
+| `vision_analyze`, `image_generate`, `text_to_speech` | out | `tools/` |
+| Browser tools | out | `tools/browser*` |
+| `execute_code` | out | `tools/code_execution*` |
+| Kanban tools | out | `hermes_cli/kanban*.py`, `plugins/kanban/` |
+| `computer_use`, `manage_connections` | out | `tools/` |
+
+## State (V3)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| `state.db` sessions and messages, read and write at schema v32 | planned | `hermes_state_common.py:452-565` |
+| FTS5 `messages_fts` and `messages_fts_trigram` search | planned | `hermes_state_common.py:941-1080` |
+| CJK FTS (loadable extension) | out (risk, see OPEN_QUESTIONS) | `hermes_state_fts.py` |
+| Gateway and runtime ledger tables | out | `hermes_state_common.py:586-748` |
+| `session_search` tool | planned | `agent/inline_tool_executors.py` |
+| Built-in memory: `MEMORY.md` and `USER.md` | planned | `tools/memory_tool.py`, `tools/memory_tool_store.py` |
+| Memory provider plugins | out | `plugins/memory/` |
+| Context compression (prune tool results, LLM summary, fallback) | planned | `agent/context_compressor.py` |
+| Native Codex compaction | out | `agent/native_compaction.py` |
+
+## Extensibility (V4)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| Skills discovery and frontmatter, `skills_list` / `skill_view` | planned | `agent/skill_utils.py`, `tools/skills_tool.py` |
+| `skill_manage` (create and patch agent skills) | planned | `tools/skill_manager_tool.py` |
+| Skills index in the system prompt | planned | `agent/prompt_builder.py:1244` |
+| Skills hub, curator, bundled sync | out | `tools/skills_hub*.py`, `agent/curator.py`, `tools/skills_sync.py` |
+| MCP client over stdio | planned | `tools/mcp_tool.py:160` |
+| MCP client over streamable HTTP | planned | `tools/mcp_tool.py:162-164` |
+| MCP SSE, sampling, OAuth | later | `tools/mcp_tool*.py` |
+| Shell hooks (`hooks:` config) | planned | `agent/shell_hooks.py` |
+| Python plugin system | out (no Python plugins in Go) | `hermes_cli/plugins.py` |
+
+## Interfaces (V5)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| CLI REPL and one-shot mode | planned | `cli.py`, `hermes_cli/cli_*_mixin.py` |
+| Slash commands (subset) | planned | `hermes_cli/` slash registry |
+| TUI backend speaking `hermes-gateway-v1` over WebSocket | planned (see TUI_PROTOCOL) | `tui_gateway/`, `gateway/session_controls.py` |
+| Telegram adapter | planned | `plugins/platforms/telegram/` |
+| Discord adapter | planned | `plugins/platforms/discord/` |
+| Gateway pairing and approvals | planned (subset) | `gateway/pairing.py`, `tools/approval.py:126-196` |
+| Other 20+ platforms | out | `plugins/platforms/` |
+| Cron scheduler with `jobs.json` | planned | `cron/jobs.py`, `cron/scheduler.py` |
+| OpenAI-compatible API: `/v1/chat/completions`, `/v1/models` | planned | `gateway/platforms/api_server.py:59-81` |
+| `/v1/responses`, `/v1/runs`, `/api/sessions` | later | `gateway/platforms/api_server*.py` |
+| Desktop app, dashboard web UI | out | `apps/desktop/`, `web/` |
+| ACP | out | — |
+
+## Packaging (V6)
+
+| Feature | Status | Upstream |
+|---|---|---|
+| Single CGO-free binary | planned | — |
+| Dockerfile (distroless) | planned | `Dockerfile` |
+| goreleaser, GitHub Actions CI | planned | `.github/workflows/` |
+
+## Out of scope (explicit)
+
+- Desktop app
+- Platform plugins beyond Telegram and Discord
+- RL and trajectories
+- `execute_code`
+- ACP
+- Browser automation
+- Media generation
+- Kanban
+- Credential pools and OAuth flows
+- Config migrations
