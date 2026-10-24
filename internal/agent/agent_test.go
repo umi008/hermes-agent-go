@@ -336,3 +336,48 @@ func TestCompressorFailuresAreCappedAndNonFatal(t *testing.T) {
 		t.Fatalf("compress attempts %d", fc.calls)
 	}
 }
+
+func TestRewindAndReset(t *testing.T) {
+	tests := []struct {
+		n           int
+		wantText    string
+		wantRemoved int
+		wantLeft    string
+	}{
+		{1, "b", 2, "a,one"},
+		{0, "b", 2, "a,one"},
+		{2, "a", 4, ""},
+		{5, "a", 4, ""},
+	}
+	for _, tt := range tests {
+		c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){text("one"), text("two"), text("three")}}
+		a := New(Options{Client: c})
+		for _, in := range []string{"a", "b"} {
+			if _, err := a.Run(context.Background(), in); err != nil {
+				t.Fatal(err)
+			}
+		}
+		txt, removed, ok := a.Rewind(tt.n)
+		var left []string
+		for _, m := range a.History() {
+			left = append(left, m.Content)
+		}
+		if !ok || txt != tt.wantText || removed != tt.wantRemoved || strings.Join(left, ",") != tt.wantLeft {
+			t.Errorf("Rewind(%d) = %q %d %v, left %v", tt.n, txt, removed, ok, left)
+		}
+		// The next run builds on the rewound history.
+		if _, err := a.Run(context.Background(), "c"); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(c.requests[2].Messages); got != len(left)+1 {
+			t.Errorf("request after rewind has %d messages", got)
+		}
+		a.Reset()
+		if len(a.History()) != 0 {
+			t.Error("Reset kept history")
+		}
+		if _, _, ok := a.Rewind(1); ok {
+			t.Error("Rewind of an empty history must report !ok")
+		}
+	}
+}

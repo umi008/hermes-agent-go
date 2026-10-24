@@ -334,3 +334,29 @@ func JitteredBackoff(attempt int) time.Duration {
 	}
 	return delay + time.Duration(rand.Float64()*0.5*float64(delay))
 }
+
+// Reset clears the conversation for a new session.
+func (a *Agent) Reset() {
+	a.history, a.lastPrompt, a.noted = nil, 0, false
+}
+
+// Rewind drops the last n user turns (clamped to the oldest), as upstream
+// undo_last: history is cut at the Nth-from-last user message. It returns
+// that message's text and how many messages went; ok is false when there
+// is no user message.
+func (a *Agent) Rewind(n int) (text string, removed int, ok bool) {
+	var users []int
+	for i, m := range a.history {
+		if m.Role == llm.RoleUser {
+			users = append(users, i)
+		}
+	}
+	if len(users) == 0 {
+		return "", 0, false
+	}
+	cut := users[max(len(users)-max(n, 1), 0)]
+	text, removed = a.history[cut].Content, len(a.history)-cut
+	a.history = a.history[:cut:cut]
+	a.lastPrompt = 0
+	return text, removed, true
+}
