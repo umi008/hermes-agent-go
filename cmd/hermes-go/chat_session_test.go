@@ -2,8 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -125,5 +132,99 @@ func TestServerSessionEndsAndDropsEmpty(t *testing.T) {
 	}
 	if len(msgs) != 2 {
 		t.Fatalf("used session kept %d messages, want 2", len(msgs))
+	}
+}
+
+// TestSessionsHookPayloadCarriesOwnID covers S4 for the seam: each session
+// wraps the shared registry with its own id, so a hook payload names the
+// session that made the call, never another one.
+func TestSessionsHookPayloadCarriesOwnID(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dumpDir := t.TempDir()
+	t.Setenv("HERMES_HOOK_DUMP", dumpDir)
+	command, _ := json.Marshal(`"` + exe + `" fake-hook-dump`)
+
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct {
+				Role string `json:"role"`
+			} `json:"messages"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
+		n++
+		id := fmt.Sprintf("c%d", n)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		if body.Messages[len(body.Messages)-1].Role == "tool" {
+			_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
+			return
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":%q,"type":"function","function":{"name":"todo_list","arguments":"{\"todos\":[{\"id\":\"1\",\"content\":\"x\",\"status\":\"pending\"}]}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n", id))
+	}))
+	t.Cleanup(srv.Close)
+
+	f := newHome(t, "model:\n  provider: custom\n  default: tiny\n  base_url: "+srv.URL+
+		"\nhooks:\n  pre_tool_call:\n    - command: "+string(command)+"\n")
+	f.vars["HERMES_ACCEPT_HOOKS"] = "1"
+	rt, err := newChatRuntime(context.Background(), chatFlags{}, f.env(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.close)
+
+	ctx := context.Background()
+	a := rt.newSession(ctx, "api", io.Discard)
+	b := rt.newSession(ctx, "telegram", io.Discard)
+	var wg sync.WaitGroup
+	for _, s := range []*chatSession{a, b} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := s.run(ctx, "hi"); err != nil {
+				t.Errorf("run: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	a.end("api_close")
+	b.end("telegram_close")
+	if a.id == b.id {
+		t.Fatalf("two sessions share an id: %q", a.id)
+	}
+
+	entries, err := os.ReadDir(dumpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("hook payloads = %d, want 2", len(entries))
+	}
+	var got []string
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(dumpDir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatalf("payload %q: %v", raw, err)
+		}
+		got = append(got, p.SessionID)
+	}
+	want := []string{a.id, b.id}
+	sort.Strings(got)
+	sort.Strings(want)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("payload ids = %q, want %q", got, want)
 	}
 }

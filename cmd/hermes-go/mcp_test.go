@@ -23,6 +23,21 @@ import (
 const fakeMCPEnv = "HERMES_GO_FAKE_MCP"
 
 func TestMain(m *testing.M) {
+	// fake-hook-dump records the hook payload, so a test can prove which
+	// session a tool call was attributed to.
+	if len(os.Args) > 1 && os.Args[1] == "fake-hook-dump" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(1)
+		}
+		f, err := os.CreateTemp(os.Getenv("HERMES_HOOK_DUMP"), "payload-*.json")
+		if err != nil {
+			os.Exit(1)
+		}
+		_, _ = f.Write(data)
+		_ = f.Close()
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "fake-hook" {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		_, _ = os.Stderr.WriteString("todo is off limits\n")
