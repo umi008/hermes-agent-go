@@ -106,9 +106,9 @@ Update the Status column as verticals land. Upstream paths are relative to
 
 | Feature | Status | Upstream |
 |---|---|---|
-| Single CGO-free binary | planned | — |
-| Dockerfile (distroless) | planned | `Dockerfile` |
-| goreleaser, GitHub Actions CI | planned | `.github/workflows/` |
+| Single CGO-free binary | done (`CGO_ENABLED=0`, pure-Go SQLite; `hermes-go version`) | — |
+| Dockerfile (distroless) | done (static, nonroot, `HERMES_HOME=/data`; no shell, so the local `terminal` tool cannot run inside it) | `Dockerfile` |
+| goreleaser, GitHub Actions CI | done (CI: vet, `-race` tests on Linux and Windows, lint, image build and smoke; release on `v*` tags: linux, darwin and windows on amd64 and arm64, checksums) | `.github/workflows/` |
 
 ## Out of scope (explicit)
 

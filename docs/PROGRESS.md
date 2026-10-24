@@ -88,6 +88,18 @@ compatibility with the Hermes home where practical.
   - M5.3 cron: `hermes-go cron` round-trips `jobs.json` preserving keys the port does not model, parses interval, 5-field cron and one-shot schedules, ticks behind `cron/.tick.lock` with at-most-once dispatch, and writes and prunes `cron/output/`.
   - M5.4 and M5.5 gateways: `hermes-go gateway` serves Telegram (long polling) and Discord (Gateway WebSocket), one session per chat, a per-chat queue, chunked replies and approvals answered in the chat.
 
+- **V6 Packaging (2026-10-24, on `dev`).**
+  - `hermes-go version` (and `--version`) prints the version injected with `-X main.version`; development builds say `dev`.
+  - `.goreleaser.yaml`: static binaries for linux, darwin and windows on amd64 and arm64, tar.gz (zip on Windows) with LICENSE, NOTICE and README, `checksums.txt`. Checked with `goreleaser check` and a local `release --snapshot`.
+  - `.github/workflows/release.yml`: a `v*` tag runs the tests, then GoReleaser, and publishes a GitHub release.
+  - `Dockerfile`: distroless static, nonroot, home in the `/data` volume; CI builds it and smoke-tests `version`, `cron list` and `cron add`.
+
+## Known V6 gaps (deliberate, tracked)
+
+- No container image is published; the image is built in CI only. No Homebrew tap, Scoop bucket, signing or SBOM.
+- The distroless image has no shell, so the local `terminal` backend fails inside it.
+- `serve` in a container must listen on `0.0.0.0`, which requires an API key.
+
 ## Known V5 gaps (deliberate, tracked)
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
@@ -133,7 +145,7 @@ compatibility with the Hermes home where practical.
 ## Next
 
 - V5 Interfaces: complete except the TUI backend (T9), whose decision is still open (see [TUI_PROTOCOL.md](TUI_PROTOCOL.md)).
-- V6 Packaging: Dockerfile, goreleaser and GitHub Actions CI.
+- Merge `dev` into `main` and tag the first release once the owner approves.
 
 ## Local dev notes
 

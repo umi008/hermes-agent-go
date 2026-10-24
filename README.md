@@ -4,7 +4,7 @@ A scoped Go port of [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 by Nous Research. This is a learning and portfolio project, not a replacement
 for upstream.
 
-**Status:** V1 Core, V2 Tools, V3 State, V4 Extensibility and V5 Interfaces done: `hermes-go chat` is interactive (REPL, slash commands, Ctrl-C) or one-shot with `-q`, `hermes-go serve` speaks the OpenAI-compatible API, `hermes-go cron` runs `jobs.json` schedules, `hermes-go gateway` serves Telegram and Discord, and the agent can write its own skills with `skill_manage`. Only the TUI backend is still open (see [docs/TUI_PROTOCOL.md](docs/TUI_PROTOCOL.md)).
+**Status:** V1 Core, V2 Tools, V3 State, V4 Extensibility, V5 Interfaces and V6 Packaging done: `hermes-go chat` is interactive (REPL, slash commands, Ctrl-C) or one-shot with `-q`, `hermes-go serve` speaks the OpenAI-compatible API, `hermes-go cron` runs `jobs.json` schedules, `hermes-go gateway` serves Telegram and Discord, and the agent can write its own skills with `skill_manage`. Only the TUI backend is still open (see [docs/TUI_PROTOCOL.md](docs/TUI_PROTOCOL.md)).
 
 **Goals:**
 
@@ -57,6 +57,15 @@ hermes-go cron add --schedule 30m --prompt "status report"
 hermes-go cron serve                 # tick every 60s
 hermes-go gateway                    # Telegram: gateway.telegram.token or TELEGRAM_BOT_TOKEN
 hermes-go gateway --platform discord # Discord: discord.token or DISCORD_BOT_TOKEN
+```
+
+With Docker (the home lives in the `/data` volume; `serve` must listen on
+`0.0.0.0` inside the container, which requires an API key):
+
+```sh
+docker build -t hermes-go .
+docker run --rm -it -v hermes:/data hermes-go chat
+docker run --rm -p 8787:8787 -v hermes:/data -e HERMES_API_KEY=... hermes-go serve --addr 0.0.0.0:8787
 ```
 
 Every command reads the Hermes home (`HERMES_HOME`, or `-p <profile>`) and its
