@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/agent"
 )
@@ -14,7 +15,10 @@ type liveSession struct {
 	srv  *Server
 	conn *conn
 	id   string
-	sess Session
+	// started stamps the session for the canonical picker, which sorts live
+	// rows newest first.
+	started time.Time
+	sess    Session
 
 	mu          sync.Mutex
 	running     bool

@@ -148,8 +148,22 @@ func (h *harness) ready() {
 	if p["heartbeat"] != true {
 		h.t.Errorf("gateway.ready = %v, want heartbeat", p)
 	}
-	if _, canonical := p["session_authority"]; canonical {
-		h.t.Errorf("gateway.ready = %v, want the legacy wire", p)
+	// The canonical wire: ready advertises the authority, and the client folds
+	// the epoch into its own before asking runtime.describe for the rest.
+	if p["session_authority"] != true {
+		h.t.Errorf("gateway.ready = %v, want session_authority", p)
+	}
+	if epoch, _ := p["authority_epoch"].(float64); epoch < 1 {
+		h.t.Errorf("gateway.ready = %v, want an authority epoch", p)
+	}
+	if replay, _ := p["replay_epoch"].(string); replay == "" {
+		h.t.Errorf("gateway.ready = %v, want a replay epoch", p)
+	}
+	if skin, present := p["skin"]; !present || skin != nil {
+		h.t.Errorf("gateway.ready = %v, want a null skin", p)
+	}
+	if events, ok := p["change_events"].([]any); !ok || len(events) != 0 {
+		h.t.Errorf("gateway.ready = %v, want no change events", p)
 	}
 }
 

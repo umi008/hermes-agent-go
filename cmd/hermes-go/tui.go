@@ -152,10 +152,11 @@ func runTUI(ctx context.Context, f tuiFlags, env Env, onListen func(url string))
 	rt, err := newChatRuntime(ctx, f.chatFlags, env, logger, func(rt *chatRuntime) (clarify.Asker, approval.Prompter) {
 		srv, srvErr = tuigateway.New(tuigateway.Options{
 			Token: token,
-			Info:  tuigateway.Info{Model: rt.ep.Model, Provider: rt.ep.Provider, Cwd: rt.cwd, Version: version},
+			Info:  tuigateway.Info{Model: rt.ep.Model, Provider: rt.ep.Provider, Cwd: rt.cwd, Version: version, Profile: rt.f.profile},
 			NewSession: func(sctx context.Context, source string, emit func(agent.Event)) tuigateway.Session {
 				return tuiSession{rt.newObservedSession(sctx, source, io.Discard, emit)}
 			},
+			Store:  rt.store,
 			Logger: logger,
 		})
 		return srv, srv

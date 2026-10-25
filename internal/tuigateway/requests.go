@@ -182,7 +182,7 @@ func (s *Server) Ask(ctx context.Context, qs []clarify.Question) (clarify.Reply,
 // already ended is "expired", not an error.
 func (s *Server) lockClarify(requestID, qid string, answer any) (any, *rpcError) {
 	if requestID == "" || qid == "" {
-		return nil, &rpcError{codeBadRequest, "request_id and question_id required"}
+		return nil, &rpcError{Code: codeBadRequest, Message: "request_id and question_id required"}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -195,7 +195,7 @@ func (s *Server) lockClarify(requestID, qid string, answer any) (any, *rpcError)
 		known = known || id == qid
 	}
 	if req.method != "clarify" || !known {
-		return nil, &rpcError{codeBadRequest, fmt.Sprintf("unknown question %q for request %s", qid, requestID)}
+		return nil, &rpcError{Code: codeBadRequest, Message: fmt.Sprintf("unknown question %q for request %s", qid, requestID)}
 	}
 	req.locked[qid] = normalizeAnswer(answer)
 	remaining := []string{}
