@@ -99,15 +99,22 @@ func (s *Server) resolveResponse(f frame) {
 }
 
 // Approve asks the client running the turn in ctx. Permanent approval is not
-// offered, as in the rest of this port.
+// offered, as in the rest of this port. A smart deny reduces the offer to
+// once/deny: the guardian already judged the command dangerous, so a scope the
+// gate would discard must never be presented.
 func (s *Server) Approve(ctx context.Context, r approval.Request) (approval.Choice, error) {
-	res, err := s.request(ctx, "approval", map[string]any{
+	params := map[string]any{
 		"request_id":      randomHex(6),
 		"command":         r.Command,
 		"description":     r.Description,
 		"choices":         []string{"once", "session", "deny"},
 		"allow_permanent": false,
-	}, nil)
+	}
+	if r.SmartDenied {
+		params["choices"] = []string{"once", "deny"}
+		params["smart_denied"] = true
+	}
+	res, err := s.request(ctx, "approval", params, nil)
 	if err != nil {
 		return approval.Deny, err
 	}
@@ -115,6 +122,10 @@ func (s *Server) Approve(ctx context.Context, r approval.Request) (approval.Choi
 		Choice string `json:"choice"`
 	}
 	_ = json.Unmarshal(res, &answer)
+	if r.SmartDenied && answer.Choice != "once" {
+		// An answer the offer did not include resolves as a denial.
+		return approval.Deny, nil
+	}
 	switch answer.Choice {
 	case "once":
 		return approval.Once, nil

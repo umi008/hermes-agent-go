@@ -391,12 +391,18 @@ func parseAnswer(line string, q clarify.Question) any {
 // linePrompter asks for dangerous-command approval in the interactive
 // chat with upstream's CLI menu. The Go port never writes config.yaml, so
 // the menu is the short one (no [a]lways), and "always" counts as session
-// as upstream does when permanent approval is unavailable.
+// as upstream does when permanent approval is unavailable. A smart deny
+// reduces it to upstream's `[o]nce  |  [d]eny` shape: the guardian already
+// judged the command dangerous, so only one operation can be granted.
 type linePrompter struct{ rt *chatRuntime }
 
 func (p *linePrompter) Approve(ctx context.Context, r approval.Request) (approval.Choice, error) {
 	rt := p.rt
-	rt.printf("\n  ⚠️  DANGEROUS COMMAND: %s\n      %s\n\n      [o]nce  |  [s]ession  |  [d]eny\n\n      Choice [o/s/D]: ", r.Description, r.Command)
+	menu := "\n      [o]nce  |  [s]ession  |  [d]eny\n\n      Choice [o/s/D]: "
+	if r.SmartDenied {
+		menu = "\n      [o]nce  |  [d]eny\n\n      Choice [o/D]: "
+	}
+	rt.printf("\n  ⚠️  DANGEROUS COMMAND: %s\n      %s\n%s", r.Description, r.Command, menu)
 	var line string
 	select {
 	case <-ctx.Done():
@@ -410,10 +416,10 @@ func (p *linePrompter) Approve(ctx context.Context, r approval.Request) (approva
 		line = strings.ToLower(strings.TrimSpace(l))
 	}
 	choice, msg := approval.Deny, "      ✗ Denied"
-	switch line {
-	case "o", "once":
+	switch {
+	case line == "o" || line == "once":
 		choice, msg = approval.Once, "      ✓ Allowed once"
-	case "s", "session", "a", "always":
+	case !r.SmartDenied && (line == "s" || line == "session" || line == "a" || line == "always"):
 		choice, msg = approval.Session, "      ✓ Allowed for this session"
 	}
 	rt.printf("%s\n\n", msg)

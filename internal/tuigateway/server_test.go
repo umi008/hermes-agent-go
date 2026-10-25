@@ -505,3 +505,33 @@ func TestQueuedPromptRunsAfterTheCurrentTurn(t *testing.T) {
 		t.Errorf("queued turn = %v", p)
 	}
 }
+
+// TestApprovalRequestSmartDeny pins the smart-deny wire: the client may only
+// grant one operation, so the choices are reduced and a scoped answer is
+// rejected rather than silently narrowed.
+func TestApprovalRequestSmartDeny(t *testing.T) {
+	var srv *Server
+	h := newHarness(t, func(ctx context.Context, _ *fakeSession, _ string) (string, error) {
+		c, err := srv.Approve(ctx, approval.Request{
+			Command: "rm -rf /tmp/x", Description: "recursive delete", SmartDenied: true})
+		if err != nil {
+			return "", err
+		}
+		return map[approval.Choice]string{approval.Once: "once", approval.Deny: "deny", approval.Session: "session"}[c], nil
+	})
+	srv = h.srv
+	h.ready()
+	sid := h.createSession()
+	h.call("prompt.submit", map[string]any{"session_id": sid, "text": "x"})
+	id, params := h.serverRequest("approval")
+	choices, _ := params["choices"].([]any)
+	if len(choices) != 2 || choices[0] != "once" || choices[1] != "deny" {
+		t.Fatalf("smart-deny choices = %v", params)
+	}
+	// A client that answers a scope it was not offered gets a denial: the
+	// guardian already judged the command dangerous.
+	h.send(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"choice": "session"}})
+	if p := h.event("message.complete"); p["text"] != "deny" {
+		t.Errorf("message.complete = %v", p)
+	}
+}
