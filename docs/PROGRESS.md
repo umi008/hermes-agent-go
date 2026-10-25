@@ -166,10 +166,10 @@ compatibility with the Hermes home where practical.
 ## Next
 
 - V7 is complete: T1-T12 landed.
-- V8 Distribution and onboarding is done on `dev` (`odd/tasks/v8-distribution.md`): `doctor`, `scripts/install.sh`, `scripts/install.ps1`, `go install` reporting the tag, `docs/GETTING_STARTED.md`, and the GHCR image job. It reaches users after `dev` is merged to `main` and `v0.2.0` is tagged.
+- V8 Distribution and onboarding is done on `dev` (`odd/tasks/v8-distribution.md`): `doctor`, `scripts/install.sh`, `scripts/install.ps1`, `go install` reporting the tag, `docs/GETTING_STARTED.md`, and the GHCR image job. Released as `v0.2.0` (2026-10-25, merge 2b8d070 on `main`).
 - Next: V9 Shared Hermes home, planned in [ROADMAP.md](ROADMAP.md) with V10-V12.
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
-- Merge `dev` into `main` and tag `v0.2.0` when the owner approves.
+- Merge `dev` into `main` and tag the next release when the owner approves.
 
 ## Local dev notes
 
