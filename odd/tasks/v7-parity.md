@@ -39,9 +39,9 @@ Assumptions:
 | T6b /v1/runs | S6 | inline | done | f5f33e7 |
 | T6c /api/sessions resources | S6 | inline | done | see Log |
 | T6d /api/sessions chat | S6 | inline | done | 719a89d, effbb69, e5a7fe3, e00563e |
-| T7a guardian reviewer | S7 | inline | done | see Log |
-| T7b gate ladder, breaker, menu | S7 | inline | done | see Log |
-| T7c config and runtime wiring | S7 | inline | done | see Log |
+| T7a guardian reviewer | S7 | inline | done | 7c12c4d |
+| T7b gate ladder, breaker, menu | S7 | inline | done | 9eb6b54, dc28f94 |
+| T7c config and runtime wiring | S7 | inline | done | fc88d5d |
 | T8 TUI canonical wire | S8 | inline | planned | |
 | T9 Retry-After, max_tokens continuation | S9 | inline | planned | |
 | T10 patch strategies, .gitignore | S10 | inline | planned | |
