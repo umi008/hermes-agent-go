@@ -35,6 +35,8 @@ type sessionScoped struct {
 
 func (e sessionScoped) Execute(ctx context.Context, call llm.ToolCall) (string, error) {
 	ctx = context.WithValue(ctx, platformKey{}, e.s.source)
+	// The approval gate tallies its consecutive guardian denials per session.
+	ctx = approval.WithSession(ctx, e.s.id)
 	return e.ToolExecutor.Execute(context.WithValue(ctx, parentSessionKey{}, e.s.id), call)
 }
 

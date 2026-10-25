@@ -312,6 +312,7 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
 		toolsets: f.toolsets, logger: logger, memory: rt.memory, skills: rt.skills, profile: f.profile,
 		store: rt.store, sessionID: rt.sessionID,
+		route: agent.Route{Client: rt.client, Provider: ep.Provider, Model: ep.Model},
 	}
 	deps.asker, deps.prompter = humans(rt)
 	reg, closeTools, err := buildTools(ctx, deps)
