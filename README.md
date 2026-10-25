@@ -51,6 +51,7 @@ network-bound agent than shipping speed and simplicity do.
 ## Usage
 
 ```sh
+hermes-go doctor                     # check home, config, provider and optional tools
 hermes-go chat                       # interactive REPL; -q "..." for one message
 hermes-go serve --addr 127.0.0.1:8787  # OpenAI-compatible API
 hermes-go cron add --schedule 30m --prompt "status report"

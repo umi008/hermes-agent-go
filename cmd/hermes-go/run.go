@@ -43,6 +43,8 @@ type Env struct {
 	// Interrupt delivers Ctrl-C. It cancels the running turn, and in the
 	// interactive chat an idle Ctrl-C exits. Nil never fires.
 	Interrupt <-chan struct{}
+	// LookPath finds a binary on PATH (doctor). Nil uses exec.LookPath.
+	LookPath func(string) (string, error)
 }
 
 // version is the release version, set at build time with
@@ -58,6 +60,7 @@ Commands:
   cron     Manage and run scheduled jobs
   gateway  Serve a chat platform (Telegram, Discord)
   tui      Run the upstream Ink TUI against this agent
+  doctor   Check the home, config, provider and optional tools
   version  Print the version
 
 Run "hermes-go <command> -h" for that command's flags.
@@ -86,6 +89,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return gatewayCmd(ctx, args[1:], env)
 	case "tui":
 		return tuiCmd(ctx, args[1:], env)
+	case "doctor":
+		return doctorCmd(args[1:], env)
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "hermes-go: unknown command %q\n\n%s", args[0], usage)
 	return 2

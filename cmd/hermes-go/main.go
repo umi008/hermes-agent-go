@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"time"
@@ -32,6 +33,7 @@ func main() {
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		Interrupt:   interrupt,
+		LookPath:    exec.LookPath,
 	}
 	code := Run(context.Background(), os.Args[1:], env)
 	signal.Stop(sig)
