@@ -144,7 +144,10 @@ func toResponse(msg sdk.Message) llm.Response {
 	case sdk.StopReasonMaxTokens:
 		stop = llm.StopMaxTokens
 	}
-	if len(out.ToolCalls) > 0 {
+	// A max_tokens stop wins over the tool_use blocks it interrupted: an input
+	// block cut by the output limit can be the prefix of an argument the model
+	// never finished, so the loop must see a truncation, not a call to run.
+	if stop != llm.StopMaxTokens && len(out.ToolCalls) > 0 {
 		stop = llm.StopToolUse
 	}
 	return llm.Response{

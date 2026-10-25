@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -237,6 +238,12 @@ func (a *Agent) loop(ctx context.Context) (Result, error) {
 	compressions := 0
 	// parts holds the fragments of an answer the output limit keeps cutting.
 	var parts []string
+	// continuations counts the rounds spent asking the model to redo an answer
+	// the output limit cut or the guard refused. It is an explicit attempt
+	// counter, not the number of fragments kept: a cut that carried no text
+	// still spends one, so a stream that keeps failing before writing anything
+	// cannot spin here forever.
+	continuations := 0
 	for {
 		if a.opts.MaxTurns > 0 && res.Turns >= a.opts.MaxTurns {
 			return res, ErrMaxTurns
@@ -258,18 +265,54 @@ func (a *Agent) loop(ctx context.Context) (Result, error) {
 		a.record(resp.Message)
 
 		calls := resp.Message.ToolCalls
-		if len(calls) > 0 {
-			a.record(a.runTools(ctx, calls)...)
+		// A response cut by the output limit is continued, not answered: the
+		// model was still writing, so the fragment stays in the transcript and
+		// the model is asked to carry on exactly where it stopped.
+		cut := resp.StopReason == llm.StopMaxTokens
+		// A call cut mid-argument is never executed, because the prefix alone
+		// can be a complete command the model never finished asking for. It is
+		// still answered below: a provider rejects a history whose assistant
+		// tool_calls have no matching tool rows.
+		cutCalls := cut && len(calls) > 0
+		refused := false
+		switch {
+		case cutCalls:
+			a.record(a.droppedToolResults(calls)...)
+		case len(calls) > 0:
+			rows, some := a.runToolCalls(ctx, calls)
+			a.record(rows...)
+			refused = some
 		}
-		// A response cut by the output limit is continued, not returned
-		// half-finished: the fragment stays in the transcript and the model is
-		// asked to carry on exactly where it stopped.
-		if len(calls) == 0 && resp.StopReason == llm.StopMaxTokens && len(parts) < MaxLengthContinuations {
+		if cut {
 			if resp.Message.Content != "" {
 				parts = append(parts, resp.Message.Content)
 			}
-			a.record(llm.Message{Role: llm.RoleUser, Content: lengthContinuationNudge})
+			if continuations >= MaxLengthContinuations {
+				// Out of continuations: keep the fragments that did arrive and
+				// stop asking, rather than loop on an answer the model cannot
+				// finish.
+				if len(parts) > 0 {
+					res.Text = strings.Join(parts, "")
+				}
+				return res, nil
+			}
+			continuations++
+			nudge := lengthContinuationNudge
+			if cutCalls {
+				nudge = droppedToolsNudge(calls)
+			}
+			a.record(llm.Message{Role: llm.RoleUser, Content: nudge})
 			continue
+		}
+		// A refused round spends a continuation from the same budget as a
+		// truncated one: a model that re-sends the same unparseable call is
+		// asked a bounded number of times, then the turn fails instead of
+		// reporting a completed answer it never produced.
+		if refused {
+			if continuations >= MaxLengthContinuations {
+				return res, fmt.Errorf("%w (refused %d times)", ErrUnusableToolCalls, continuations)
+			}
+			continuations++
 		}
 		steered := a.drainSteer()
 		if len(calls) == 0 && !steered {
@@ -389,7 +432,29 @@ const (
 	// truncated by the output length limit.
 	lengthContinuationNudge = "[System: Your previous response was truncated by the output length limit. " +
 		"Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
+	// droppedToolsNudgePrefix opens upstream's continuation prompt for a stream
+	// cut in the middle of a tool call's arguments.
+	droppedToolsNudgePrefix = "[System: Your previous tool call "
+	// smallerCallsAsk closes the tool result for a call the stream cut before
+	// its arguments were complete, so the model does not answer the refusal
+	// with the same oversized call.
+	smallerCallsAsk = " Re-send it as smaller calls whose arguments stay under ~8K tokens."
 )
+
+// droppedToolsNudge is upstream's prompt for a call cut mid-arguments: it says
+// the cut was transport, not capability, and asks for smaller calls instead of
+// a byte-identical retry.
+func droppedToolsNudge(calls []llm.ToolCall) string {
+	names := make([]string, 0, min(3, len(calls)))
+	for _, call := range calls[:min(3, len(calls))] {
+		names = append(names, call.Name)
+	}
+	return droppedToolsNudgePrefix + "(" + strings.Join(names, ", ") + ") was too large and the stream timed out before it " +
+		"could be delivered. Do NOT retry the same tool call with the same large content. Instead, break the content " +
+		"into multiple smaller tool calls (e.g. use multiple patch calls or write smaller files). Each tool call's " +
+		"arguments must be under ~8K tokens to avoid stream timeouts. The cut was a transport interruption, not a " +
+		"capability change — your tools remain fully available.]"
+}
 
 // retryAfter reads a provider's own wait off a rate-limit or transient error.
 func retryAfter(err error) (time.Duration, bool) {
@@ -399,6 +464,61 @@ func retryAfter(err error) (time.Duration, bool) {
 	}
 	return 0, false
 }
+
+// droppedToolResults answers calls the stream cut before their arguments were
+// complete. Nothing runs, but every call id must still be answered: a provider
+// rejects a request whose assistant tool_calls are not followed by matching
+// tool rows, and the model has to learn that its call did not execute.
+func (a *Agent) droppedToolResults(calls []llm.ToolCall) []llm.Message {
+	out := make([]llm.Message, len(calls))
+	for i := range calls {
+		call := &calls[i]
+		a.emit(Event{Kind: EventToolStart, ToolCall: call})
+		out[i] = llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, IsError: true,
+			Content: fmt.Sprintf("tool call %q was not executed: the stream was cut while its arguments were being written, so the call never finished.", call.Name) + smallerCallsAsk}
+		a.emit(Event{Kind: EventToolResult, ToolCall: call, Text: out[i].Content, IsError: true})
+	}
+	return out
+}
+
+// runToolCalls validates arguments before anything runs: a call whose arguments
+// are not JSON is refused as a tool result naming the reason, so the model can
+// re-send a well-formed call instead of a tool acting on a prefix. It reports
+// whether any call was refused, because such a round must spend a continuation.
+func (a *Agent) runToolCalls(ctx context.Context, calls []llm.ToolCall) ([]llm.Message, bool) {
+	out := make([]llm.Message, len(calls))
+	valid := make([]int, 0, len(calls))
+	refused := false
+	for i := range calls {
+		call := &calls[i]
+		if len(call.Arguments) > 0 && !json.Valid(call.Arguments) {
+			refused = true
+			a.emit(Event{Kind: EventToolStart, ToolCall: call})
+			out[i] = llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, IsError: true,
+				Content: fmt.Sprintf("tool call %q was not executed: its arguments are not valid JSON, so the stream was cut before the call finished.", call.Name) + smallerCallsAsk}
+			a.emit(Event{Kind: EventToolResult, ToolCall: call, Text: out[i].Content, IsError: true})
+			continue
+		}
+		valid = append(valid, i)
+	}
+	if len(valid) == 0 {
+		return out, refused
+	}
+	subset := make([]llm.ToolCall, len(valid))
+	for j, i := range valid {
+		subset[j] = calls[i]
+	}
+	results := a.runTools(ctx, subset)
+	for j, i := range valid {
+		out[i] = results[j]
+	}
+	return out, refused
+}
+
+// ErrUnusableToolCalls reports a turn that ended because the model kept sending
+// tool calls whose arguments were not JSON. Nothing ran for them, and the turn
+// is not a completed answer, so it must not be reported as one.
+var ErrUnusableToolCalls = errors.New("agent: the model kept sending unusable tool calls")
 
 // runTools executes calls concurrently and returns results in call order.
 func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall) []llm.Message {

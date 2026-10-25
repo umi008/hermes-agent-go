@@ -304,12 +304,16 @@ func (c *Client) readStream(ctx context.Context, r io.Reader, onEvent func(llm.E
 	return llm.Response{Message: msg, StopReason: stopReason(finish, len(msg.ToolCalls) > 0), Usage: usage}, nil
 }
 
+// stopReason maps the wire finish reason to the loop's stop contract. A length
+// cut wins over the calls it caught: the stream stopped while an argument was
+// still being written, so the call is a prefix the model never finished asking
+// for and the loop must treat the response as truncated instead of running it.
 func stopReason(finish string, hasTools bool) string {
 	switch {
-	case hasTools || finish == "tool_calls" || finish == "function_call":
-		return llm.StopToolUse
 	case finish == "length":
 		return llm.StopMaxTokens
+	case hasTools || finish == "tool_calls" || finish == "function_call":
+		return llm.StopToolUse
 	default:
 		return llm.StopEnd
 	}
