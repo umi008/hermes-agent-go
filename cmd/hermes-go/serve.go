@@ -166,6 +166,9 @@ func (b runtimeBackend) Model() string { return b.rt.ep.Model }
 
 func (b runtimeBackend) NewSession(ctx context.Context, o apiserver.SessionOptions) apiserver.Session {
 	spec := sessionSpec{source: o.Source, out: o.Out, id: o.ID, history: o.History, instructions: o.Instructions}
+	if o.Resume && len(spec.history) == 0 {
+		spec.history = storedHistory(ctx, b.rt.store, o.ID, b.rt.logger)
+	}
 	if o.OnTool != nil {
 		spec.observe = func(e agent.Event) {
 			if e.ToolCall == nil {
@@ -191,6 +194,10 @@ func (s runtimeSession) Run(ctx context.Context, input string) (apiserver.Reply,
 	res, err := s.s.run(ctx, input)
 	history, turn := s.s.transcript()
 	reply := apiserver.Reply{Text: res.Text, Usage: res.Usage, Stop: res.StopReason, Turn: turn, History: history}
+	reply.Provider, reply.Model = s.s.agent.Served()
+	if end := s.s.agent.Outcome(ctx, res, err); !end.Completed {
+		reply.ExitReason = end.Reason
+	}
 	if errors.Is(err, agent.ErrMaxTurns) {
 		// Upstream ships a budget-exhausted turn as a soft partial: the text it
 		// managed plus finish_reason "length", not a transport error.

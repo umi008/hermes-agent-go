@@ -26,6 +26,8 @@ type fakeBackend struct {
 	inputs []string
 	// script runs the turn: it may write to out and fire tool events.
 	script func(o SessionOptions, input string) (Reply, error)
+	// ctxScript, when set, runs the turn with the run's context.
+	ctxScript func(ctx context.Context, o SessionOptions, input string) (Reply, error)
 }
 
 func (b *fakeBackend) Model() string { return "tiny" }
@@ -56,11 +58,14 @@ type fakeSession struct {
 func (s *fakeSession) ID() string { return s.id }
 func (s *fakeSession) End(string) {}
 
-func (s *fakeSession) Run(_ context.Context, input string) (Reply, error) {
+func (s *fakeSession) Run(ctx context.Context, input string) (Reply, error) {
 	s.b.mu.Lock()
 	s.b.inputs = append(s.b.inputs, input)
-	script := s.b.script
+	script, ctxScript := s.b.script, s.b.ctxScript
 	s.b.mu.Unlock()
+	if ctxScript != nil {
+		return ctxScript(ctx, s.o, input)
+	}
 	if script == nil {
 		reply := Reply{Text: "echo " + input, Usage: llm.Usage{InputTokens: 3, OutputTokens: 2}}
 		reply.History = append(append(append([]llm.Message(nil), s.o.History...),

@@ -167,3 +167,20 @@ func TestNoFallbacksKeepsRetryBehavior(t *testing.T) {
 		t.Errorf("requests = %d, want a retry on 429 without fallbacks", len(primary.requests))
 	}
 }
+
+func TestServedNamesTheActiveRoute(t *testing.T) {
+	now := time.Unix(1000, 0)
+	var events []Event
+	primary := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){fail(apiErr(429))}}
+	fb := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){text("from fb")}}
+	a := fallbackAgent(primary, &now, &events, Route{Client: fb, Provider: "backup", Model: "b-model"})
+	if p, m := a.Served(); p != "primary" || m != "p-model" {
+		t.Fatalf("Served before = %q, %q", p, m)
+	}
+	if _, err := a.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if p, m := a.Served(); p != "backup" || m != "b-model" {
+		t.Fatalf("Served after fallback = %q, %q", p, m)
+	}
+}

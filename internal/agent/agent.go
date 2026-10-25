@@ -154,6 +154,17 @@ func New(o Options) *Agent {
 	return a
 }
 
+// Served returns the provider and model serving the conversation: the active
+// fallback's after a switch, until the primary is restored.
+func (a *Agent) Served() (provider, model string) {
+	return a.fallback.active.Provider, a.fallback.active.Model
+}
+
+// Outcome maps a Run result to upstream's turn exit flags and reason.
+func (a *Agent) Outcome(ctx context.Context, res Result, err error) TurnEnd {
+	return turnEnd(ctx, res, err, a.opts.MaxTurns)
+}
+
 // History returns a copy of the conversation so far.
 func (a *Agent) History() []llm.Message {
 	return append([]llm.Message(nil), a.history...)

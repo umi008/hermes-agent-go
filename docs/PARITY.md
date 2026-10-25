@@ -101,7 +101,9 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Cron scheduler with `jobs.json` | done (interval, 5-field cron and one-shot schedules; at-most-once ticks behind a lock file; output files with retention; no delivery targets, quotas or threads) | `cron/jobs.py`, `cron/scheduler.py` |
 | OpenAI-compatible API: `/v1/chat/completions`, `/v1/models` | done (streaming and non-streaming, bearer token, one session per request) | `gateway/platforms/api_server.py:59-81` |
 | `/v1/responses` (store, chains, conversations, streaming, run cap) | done | `gateway/platforms/api_server.py` |
-| `/v1/runs`, `/api/sessions` | later | `gateway/platforms/api_server*.py` |
+| `/v1/runs` (start, status, events with replay, stop) | done | `gateway/platforms/api_server_runs.py` |
+| `/v1/runs` approval, clarify, steer, resolve-unknown, Idempotency-Key | later | `gateway/platforms/api_server_runs.py` |
+| `/api/sessions` | later | `gateway/platforms/api_server*.py` |
 | Desktop app, dashboard web UI | out | `apps/desktop/`, `web/` |
 | ACP | out | — |
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/llm"
 )
@@ -98,3 +99,40 @@ func randomHex(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// record is a JSON object updated in place like a Python dict: a new key goes
+// last, an existing key keeps its position.
+type record struct {
+	keys []string
+	vals map[string]any
+}
+
+func newRecord() *record { return &record{vals: map[string]any{}} }
+
+func (r *record) set(k string, v any) {
+	if _, ok := r.vals[k]; !ok {
+		r.keys = append(r.keys, k)
+	}
+	r.vals[k] = v
+}
+
+// setDefault sets k only when it is absent, as dict.setdefault.
+func (r *record) setDefault(k string, v any) {
+	if _, ok := r.vals[k]; !ok {
+		r.set(k, v)
+	}
+}
+
+func (r *record) get(k string) any { return r.vals[k] }
+
+// snapshot is the record's current fields as an ordered object.
+func (r *record) snapshot() obj {
+	out := make(obj, 0, len(r.keys))
+	for _, k := range r.keys {
+		out = append(out, kv{k, r.vals[k]})
+	}
+	return out
+}
+
+// unixSeconds is a time as Python time.time(): float seconds.
+func unixSeconds(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }

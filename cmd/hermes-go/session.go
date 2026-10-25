@@ -127,3 +127,47 @@ func (r *recorder) title(ctx context.Context, t string) error {
 	}
 	return r.store.SetTitle(ctx, r.id, t)
 }
+
+// storedHistory is a stored session's active messages in the chat shape, as
+// upstream get_messages_as_conversation, for a resumed conversation. No store,
+// no id or a read failure yields none.
+func storedHistory(ctx context.Context, st *state.Store, id string, logger *slog.Logger) []llm.Message {
+	if st == nil || id == "" {
+		return nil
+	}
+	rows, err := st.Messages(ctx, id)
+	if err != nil {
+		logger.Warn("load session history", "session", id, "err", err)
+		return nil
+	}
+	out := make([]llm.Message, 0, len(rows))
+	for _, r := range rows {
+		m := llm.Message{Role: llm.Role(r.Role), Content: r.Content, ToolCallID: r.ToolCallID}
+		switch m.Role {
+		case llm.RoleUser, llm.RoleAssistant, llm.RoleTool:
+		default:
+			continue
+		}
+		if r.ToolCalls != "" {
+			var calls []struct {
+				ID       string `json:"id"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			}
+			if err := json.Unmarshal([]byte(r.ToolCalls), &calls); err != nil {
+				logger.Warn("load session history: tool calls", "session", id, "err", err)
+			}
+			for _, c := range calls {
+				tc := llm.ToolCall{ID: c.ID, Name: c.Function.Name}
+				if c.Function.Arguments != "" {
+					tc.Arguments = json.RawMessage(c.Function.Arguments)
+				}
+				m.ToolCalls = append(m.ToolCalls, tc)
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}

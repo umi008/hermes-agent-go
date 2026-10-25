@@ -402,3 +402,17 @@ func TestHistorySeedsPriorConversation(t *testing.T) {
 		t.Fatalf("OnMessage saw %v, want only this turn's messages", recorded)
 	}
 }
+
+func TestOutcomeMapsRunEndings(t *testing.T) {
+	c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){
+		toolCalls(llm.ToolCall{ID: "1", Name: "echo"}), toolCalls(llm.ToolCall{ID: "2", Name: "echo"}),
+	}}
+	a := New(Options{Client: c, Tools: fakeTools{}, MaxTurns: 2, Backoff: noWait})
+	res, err := a.Run(context.Background(), "hello")
+	if got := a.Outcome(context.Background(), res, err); got.Completed || got.Reason != "max_iterations_reached(2/2)" {
+		t.Fatalf("budget outcome = %+v", got)
+	}
+	if got := a.Outcome(context.Background(), Result{StopReason: llm.StopEnd}, nil); !got.Completed || got.Reason != "text_response(finish_reason=stop)" {
+		t.Fatalf("completed outcome = %+v", got)
+	}
+}

@@ -40,6 +40,12 @@ type Reply struct {
 	// the user message and Turn, or the compacted transcript when the turn
 	// compressed the context.
 	History []llm.Message
+	// ExitReason is upstream's turn_exit_reason, set only when the turn ended
+	// without finishing (the iteration budget, a failure, an interruption).
+	ExitReason string
+	// Provider and Model name the runtime that served the turn, a
+	// fallback's after a switch.
+	Provider, Model string
 }
 
 // Session is one conversation. Run sends one user message and streams its text
@@ -68,6 +74,9 @@ type SessionOptions struct {
 	Out io.Writer
 	// ID continues the stored session with that id; empty opens a new one.
 	ID string
+	// Resume seeds the conversation with the stored transcript of ID when
+	// History is empty.
+	Resume bool
 	// History seeds the conversation with prior messages.
 	History []llm.Message
 	// Instructions is an ephemeral system prompt layered on the core one
@@ -123,6 +132,7 @@ type Server struct {
 	maxRuns   int
 	inflight  atomic.Int64
 	responses *ResponseStore
+	runs      *runRegistry
 }
 
 // New builds the server. Call Serve to bind it, or Handler to embed it.
@@ -137,6 +147,7 @@ func New(cfg Config) *Server {
 		maxRuns: max(cfg.MaxConcurrentRuns, 0),
 
 		responses: cfg.Responses,
+		runs:      newRunRegistry(),
 	}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
@@ -176,6 +187,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		return err
 	case <-ctx.Done():
+		s.runs.interruptAll()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := hs.Shutdown(shutdownCtx); err != nil {
@@ -195,6 +207,10 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /v1/responses", s.authenticated(http.HandlerFunc(s.handleResponses)))
 	mux.Handle("GET /v1/responses/{id}", s.authenticated(http.HandlerFunc(s.handleGetResponse)))
 	mux.Handle("DELETE /v1/responses/{id}", s.authenticated(http.HandlerFunc(s.handleDeleteResponse)))
+	mux.Handle("POST /v1/runs", s.authenticated(http.HandlerFunc(s.handleRuns)))
+	mux.Handle("GET /v1/runs/{id}", s.authenticated(http.HandlerFunc(s.handleGetRun)))
+	mux.Handle("GET /v1/runs/{id}/events", s.authenticated(http.HandlerFunc(s.handleRunEvents)))
+	mux.Handle("POST /v1/runs/{id}/stop", s.authenticated(http.HandlerFunc(s.handleStopRun)))
 	return s.logRequests(mux)
 }
 
@@ -375,3 +391,6 @@ func (w *statusWriter) status() int {
 	}
 	return w.code
 }
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

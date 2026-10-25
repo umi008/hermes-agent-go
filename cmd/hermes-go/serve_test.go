@@ -667,3 +667,77 @@ func TestMaxConcurrentRuns(t *testing.T) {
 		}
 	}
 }
+
+// runOver posts a run, waits for its event stream to close and returns the
+// events and the final status.
+func runOver(t *testing.T, srv *httptest.Server, body string) (events, status string) {
+	t.Helper()
+	resp := apiDo(t, srv, "POST", "/v1/runs", "", body)
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /v1/runs: %d %v", resp.StatusCode, err)
+	}
+	raw, _ := io.ReadAll(apiDo(t, srv, "GET", "/v1/runs/"+accepted.RunID+"/events", "", "").Body)
+	st, _ := io.ReadAll(apiDo(t, srv, "GET", "/v1/runs/"+accepted.RunID, "", "").Body)
+	return string(raw), string(st)
+}
+
+// TestAPIRunsResumeSession checks a run with session_id replays that stored
+// session and reports the served runtime.
+func TestAPIRunsResumeSession(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		n := len(bodies)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"reply `+strconv.Itoa(n)+`"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	events, status := runOver(t, srv, `{"input":"alpha","session_id":"s-run"}`)
+	if !strings.Contains(events, `"event":"message.delta"`) || !strings.Contains(events, `"event":"run.completed"`) {
+		t.Fatalf("events %s", events)
+	}
+	for _, want := range []string{`"status":"completed"`, `"session_id":"s-run"`, `"output":"reply 1"`,
+		`"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"cache_read_tokens":0,"cache_write_tokens":0}`,
+		`"runtime":{"provider":"custom","model":"tiny","route_source":"global"}`} {
+		if !strings.Contains(status, want) {
+			t.Errorf("status lacks %s: %s", want, status)
+		}
+	}
+	runOver(t, srv, `{"input":"beta","session_id":"s-run"}`)
+	mu.Lock()
+	second := bodies[1]
+	mu.Unlock()
+	for _, want := range []string{`"alpha"`, `"reply 1"`, `"beta"`} {
+		if !strings.Contains(second, want) {
+			t.Errorf("resumed model request lacks %s: %s", want, second)
+		}
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, "s-run"); got != "alpha|reply 1|beta|reply 2" {
+		t.Errorf("session messages = %q", got)
+	}
+}
+
+// TestAPIRunsToolEvents checks the runtime's tool calls reach the run stream.
+func TestAPIRunsToolEvents(t *testing.T) {
+	model, _ := toolCallModel(t, "no_such_tool", `{"query":"q"}`)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+	events, _ := runOver(t, srv, `{"input":"go"}`)
+	for _, want := range []string{`"event":"tool.started","run_id"`, `"tool":"no_such_tool","preview":"q","tool_call_id":"c1"`,
+		`"event":"tool.completed"`, `"event":"run.completed"`} {
+		if !strings.Contains(events, want) {
+			t.Errorf("events lack %s: %s", want, events)
+		}
+	}
+}
