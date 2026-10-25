@@ -231,9 +231,11 @@ enabled_toolsets, workdir
 `hermes-go tui` serves upstream's Ink client over `/api/ws?token=...`. The wire
 is the canonical one (the `session_authority` handshake, `runtime.describe`,
 `session.list`, `session.resume` and the `4001` + `data.reason` error contract);
-[TUI_PROTOCOL.md](TUI_PROTOCOL.md) documents every payload. What the port does
-not speak — the receipt ledger, event replay, pending admissions, skins and
-slash commands — is reported as zero or empty rather than faked.
+[TUI_PROTOCOL.md](TUI_PROTOCOL.md) documents every payload. The slash menu
+(`commands.catalog`, `complete.slash`, `slash.exec`) serves the gateway's own
+catalog. What the port does not speak — the receipt ledger, event replay,
+pending admissions, skins and `command.dispatch` — is reported as zero or empty
+rather than faked.
 
 ## 10. Other files (out of scope until needed)
 

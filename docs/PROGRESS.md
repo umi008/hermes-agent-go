@@ -120,7 +120,7 @@ compatibility with the Hermes home where practical.
 
 ## Known V5 gaps (deliberate, tracked)
 
-- TUI: the canonical wire is spoken (`session_authority`, epochs, `runtime.describe`, `session.list`, `session.resume`), but not upstream's receipt ledger: no `prompt.receipt`, no event replay (`last_sequence` is 0), no pending admissions or `open_requests`, no display projection, no skins. Slash commands (`commands.catalog`, `slash.exec`, `completions.observe`), model switch, `sudo`/`secret` requests and the usage ticker are not ported; startup and poll methods return empty results, so the banner lists 0 tools; sessions still end when their connection closes.
+- TUI: the canonical wire is spoken (`session_authority`, epochs, `runtime.describe`, `session.list`, `session.resume`), but not upstream's receipt ledger: no `prompt.receipt`, no event replay (`last_sequence` is 0), no pending admissions or `open_requests`, no display projection, no skins. The slash menu is served over the gateway's own catalog (`/help`, `/model`, `/status`), while `command.resolve`/`command.dispatch`, the model switch, `sudo`/`secret` requests and the usage ticker are not ported; startup and poll methods return empty results, so the banner lists 0 tools; sessions still end when their connection closes.
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
 - `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
@@ -164,7 +164,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V7 remaining tasks, in order: T8d slash commands (the rest of the TUI canonical wire), T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
+- V7 remaining tasks, in order: T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
 - Merge `dev` into `main` and tag a release when the owner approves.
 
