@@ -152,6 +152,7 @@ func newAPIServer(rt *chatRuntime, addr, key string, logger *slog.Logger, respon
 		Now:               rt.env.Now,
 		MaxConcurrentRuns: maxConcurrentRuns(rt.cfg),
 		Responses:         responses,
+		Sessions:          rt.store,
 		Ready: func(bound string) {
 			_, _ = fmt.Fprintf(rt.env.Stderr, "hermes-go: api server listening on http://%s\n", bound)
 		},

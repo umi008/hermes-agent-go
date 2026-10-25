@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/llm"
+	"github.com/umi008/hermes-agent-go/internal/state"
 )
 
 // Reply is the outcome of one turn.
@@ -117,6 +118,8 @@ type Config struct {
 	// Responses keeps the stored /v1/responses records. Nil keeps them in
 	// memory for the server's lifetime.
 	Responses *ResponseStore
+	// Sessions backs /api/sessions. Nil answers those routes 503.
+	Sessions *state.Store
 }
 
 // Server is the OpenAI-compatible HTTP layer.
@@ -133,6 +136,7 @@ type Server struct {
 	inflight  atomic.Int64
 	responses *ResponseStore
 	runs      *runRegistry
+	sessions  *state.Store
 }
 
 // New builds the server. Call Serve to bind it, or Handler to embed it.
@@ -148,6 +152,7 @@ func New(cfg Config) *Server {
 
 		responses: cfg.Responses,
 		runs:      newRunRegistry(),
+		sessions:  cfg.Sessions,
 	}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
@@ -211,6 +216,13 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /v1/runs/{id}", s.authenticated(http.HandlerFunc(s.handleGetRun)))
 	mux.Handle("GET /v1/runs/{id}/events", s.authenticated(http.HandlerFunc(s.handleRunEvents)))
 	mux.Handle("POST /v1/runs/{id}/stop", s.authenticated(http.HandlerFunc(s.handleStopRun)))
+	mux.Handle("GET /api/sessions", s.authenticated(http.HandlerFunc(s.handleListSessions)))
+	mux.Handle("POST /api/sessions", s.authenticated(http.HandlerFunc(s.handleCreateSession)))
+	mux.Handle("GET /api/sessions/{id}", s.authenticated(http.HandlerFunc(s.handleGetSession)))
+	mux.Handle("PATCH /api/sessions/{id}", s.authenticated(http.HandlerFunc(s.handlePatchSession)))
+	mux.Handle("DELETE /api/sessions/{id}", s.authenticated(http.HandlerFunc(s.handleDeleteSession)))
+	mux.Handle("GET /api/sessions/{id}/messages", s.authenticated(http.HandlerFunc(s.handleSessionMessages)))
+	mux.Handle("POST /api/sessions/{id}/fork", s.authenticated(http.HandlerFunc(s.handleForkSession)))
 	return s.logRequests(mux)
 }
 

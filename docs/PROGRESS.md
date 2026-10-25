@@ -101,11 +101,13 @@ compatibility with the Hermes home where practical.
   - T3 auxiliary routing: the compression summary uses `auxiliary.compression` (pinned route or model override) with its timeout and 300 s floor.
   - T6a `/v1/responses`: create, get and delete with a SQLite LRU store, `previous_response_id` and `conversation` chains that continue one session, upstream's streaming events, and `max_concurrent_runs` (10) on chat completions and responses.
   - T6b `/v1/runs`: background runs with pollable status, an SSE event stream with replay, stop, and session resume by `session_id`.
+  - T6c `/api/sessions`: list, create, get, patch (title and sidebar flags), delete, paged messages and fork over the runtime's state.db.
 
 ## Known V7 gaps (deliberate, tracked)
 
 - `/v1/responses`: no reasoning items, idempotency keys, `X-Hermes-Session-Key` or multimodal input; failures report a generic message; system and developer history entries are dropped; truncation keeps no compaction summary; JSON is compact, not Python-spaced; the session source is `api`.
 - `/v1/runs`: no Idempotency-Key, approval, clarify, steer or resolve-unknown endpoints; no `message.interim`, reasoning or subagent events; tool previews show only the primary argument and results are not redacted; failures say `agent run failed`.
+- `/api/sessions`: no session chat endpoints, model lock, compression lineage (tip projection, ancestor messages, lineage-wide flags), retired-id fence or Bot Chat rules; delete leaves session files alone.
 
 ## Known V6 gaps (deliberate, tracked)
 
@@ -119,7 +121,7 @@ compatibility with the Hermes home where practical.
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
 - `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
-- API server: no `/api/sessions`; chat completions run one session per request, and usage is reported only on the non-streaming path.
+- API server: chat completions run one session per request, and usage is reported only on the non-streaming path.
 - Cron: no delivery targets, quotas, dependency chains, `context_from` or thread handoff; one job runs at a time, and a job never resumes a conversation.
 - Gateway: no pairing flow, delivery ledger, rooms or webhooks; approvals are text menus rather than inline keyboards; no media, voice or topics. A chat session lives as long as the process.
 - Server sessions leave `${HERMES_SESSION_ID}` and the memory tool's current session empty: those read one current session per runtime, which only the REPL sets.
@@ -158,7 +160,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V7 remaining tasks, in order: T6c `/api/sessions`, T7 smart approval, T8 TUI canonical wire, T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
+- V7 remaining tasks, in order: T6d `/api/sessions/{id}/chat`, T7 smart approval, T8 TUI canonical wire, T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
 - Merge `dev` into `main` and tag a release when the owner approves.
 

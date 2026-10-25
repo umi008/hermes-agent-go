@@ -741,3 +741,24 @@ func TestAPIRunsToolEvents(t *testing.T) {
 		}
 	}
 }
+
+// TestAPISessionsReadTheRuntimeStore checks /api/sessions serves the same
+// state.db the agent turns write.
+func TestAPISessionsReadTheRuntimeStore(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	srv := apiTestServer(t, newHome(t, modelConfig(model.URL)), "")
+	runOver(t, srv, `{"input":"ping","session_id":"s-api"}`)
+
+	list, _ := io.ReadAll(apiDo(t, srv, "GET", "/api/sessions", "", "").Body)
+	if !strings.Contains(string(list), `"id":"s-api"`) || !strings.Contains(string(list), `"preview":"ping"`) {
+		t.Fatalf("list = %s", list)
+	}
+	msgs, _ := io.ReadAll(apiDo(t, srv, "GET", "/api/sessions/s-api/messages?order=oldest&limit=10", "", "").Body)
+	if !strings.Contains(string(msgs), `"content":"ping"`) || !strings.Contains(string(msgs), `"content":"pong"`) {
+		t.Fatalf("messages = %s", msgs)
+	}
+}
