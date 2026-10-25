@@ -48,3 +48,20 @@ as possible:
 M6 CI is cheap and protects every later milestone, so it is worth pulling a
 minimal CI workflow (gofmt, vet, golangci-lint, `go test -race`) forward into
 M1.1.
+
+## After V7 (planned 2026-10-25)
+
+V1-V7 are done. `v0.1.0` predates V7. The next waves follow the same rule as
+before: what a new user hits first comes first.
+
+| # | Vertical | Content | Risk |
+|---|---|---|---|
+| V8 | Distribution and onboarding | `scripts/install.sh` and `scripts/install.ps1` from GitHub Releases with checksum verification; `go install`; `hermes-go doctor`; `docs/GETTING_STARTED.md`; Docker image on GHCR; release `v0.2.0`. Plan: [odd/tasks/v8-distribution.md](../odd/tasks/v8-distribution.md) | Delivery (CI, release) |
+| V9 | Shared Hermes home | Opt-in writes to upstream's own `state.db` and memories instead of `hermes-go/`; session lineage; persisted compaction summaries; upstream sessions searchable | Data: the user's real history |
+| V10 | CLI experience | `/compress`, `/usage`, `/personality`, a real `/model` switch, line editing and a history file | Low |
+| V11 | Gateway depth | Inline-keyboard approvals, media, pairing, cron delivery to a chat, a Slack adapter | Medium |
+| V12 | Reopened `out` rows | `execute_code`, vision, browser tools; only rows the owner reopens | Depends on the row |
+
+Open decision for V8: a `hermes-go setup` wizard would write `config.yaml`,
+which the port has never done. Until the owner decides, `doctor` and the
+getting-started guide stand in for it.

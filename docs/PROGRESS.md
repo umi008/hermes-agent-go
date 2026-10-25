@@ -165,7 +165,8 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V7 is complete: T1-T10 landed. Next vertical is unplanned; the gaps named in this file are the candidates.
+- V7 is complete: T1-T12 landed.
+- V8 Distribution and onboarding is in progress on `dev`: plan in `odd/tasks/v8-distribution.md`. V9-V12 are planned in [ROADMAP.md](ROADMAP.md).
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
 - Merge `dev` into `main` and tag a release when the owner approves.
 
