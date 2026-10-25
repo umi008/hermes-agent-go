@@ -158,7 +158,10 @@ func (c *Client) Stream(ctx context.Context, req llm.Request, onEvent func(llm.E
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return llm.Response{}, &llm.APIError{Provider: c.label(), Status: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+		// The limiter's own wait, when it sends one, beats the local backoff.
+		after, _ := llm.ParseRetryAfter(resp.Header.Get("Retry-After"))
+		return llm.Response{}, &llm.APIError{Provider: c.label(), Status: resp.StatusCode,
+			Body: strings.TrimSpace(string(data)), RetryAfter: after}
 	}
 	return c.readStream(ctx, resp.Body, onEvent)
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,8 +96,12 @@ type Options struct {
 	// MaxAttempts per model call; zero means DefaultMaxAttempts.
 	MaxAttempts int
 	// Backoff returns the wait before retry attempt n (1-based); nil uses
-	// upstream jittered exponential backoff.
+	// upstream jittered exponential backoff. A provider's own Retry-After wins
+	// over it.
 	Backoff func(attempt int) time.Duration
+	// Sleep waits before a retry; nil sleeps for real. Tests replace it to
+	// observe the honoured wait without waiting.
+	Sleep func(ctx context.Context, d time.Duration) error
 	// Steer delivers user messages injected between iterations.
 	Steer   <-chan string
 	OnEvent func(Event)
@@ -138,6 +143,9 @@ type Agent struct {
 func New(o Options) *Agent {
 	if o.MaxAttempts <= 0 {
 		o.MaxAttempts = DefaultMaxAttempts
+	}
+	if o.Sleep == nil {
+		o.Sleep = sleep
 	}
 	if o.Backoff == nil {
 		o.Backoff = JitteredBackoff
@@ -227,6 +235,8 @@ func (a *Agent) loop(ctx context.Context) (Result, error) {
 		specs = a.opts.Tools.Specs()
 	}
 	compressions := 0
+	// parts holds the fragments of an answer the output limit keeps cutting.
+	var parts []string
 	for {
 		if a.opts.MaxTurns > 0 && res.Turns >= a.opts.MaxTurns {
 			return res, ErrMaxTurns
@@ -251,8 +261,22 @@ func (a *Agent) loop(ctx context.Context) (Result, error) {
 		if len(calls) > 0 {
 			a.record(a.runTools(ctx, calls)...)
 		}
+		// A response cut by the output limit is continued, not returned
+		// half-finished: the fragment stays in the transcript and the model is
+		// asked to carry on exactly where it stopped.
+		if len(calls) == 0 && resp.StopReason == llm.StopMaxTokens && len(parts) < MaxLengthContinuations {
+			if resp.Message.Content != "" {
+				parts = append(parts, resp.Message.Content)
+			}
+			a.record(llm.Message{Role: llm.RoleUser, Content: lengthContinuationNudge})
+			continue
+		}
 		steered := a.drainSteer()
 		if len(calls) == 0 && !steered {
+			if len(parts) > 0 {
+				parts = append(parts, resp.Message.Content)
+				res.Text = strings.Join(parts, "")
+			}
 			return res, nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -342,13 +366,38 @@ func (a *Agent) call(ctx context.Context, specs []llm.ToolSpec) (llm.Response, e
 		if attempt >= a.opts.MaxAttempts || !llm.IsRetryable(err) {
 			return llm.Response{}, fmt.Errorf("agent: model call: %w", err)
 		}
+		// A provider that says how long to wait is obeyed: its window is the
+		// one we know about, and the local backoff only fills the silence.
 		wait := a.opts.Backoff(attempt)
+		if after, ok := retryAfter(err); ok {
+			wait = after
+		}
 		a.opts.Logger.Warn("retrying model call", "attempt", attempt, "wait", wait, "err", err)
 		a.emit(Event{Kind: EventRetry, Attempt: attempt, Err: err})
-		if err := sleep(ctx, wait); err != nil {
+		if err := a.opts.Sleep(ctx, wait); err != nil {
 			return llm.Response{}, err
 		}
 	}
+}
+
+const (
+	// MaxLengthContinuations is upstream's cap on output-limit continuations
+	// before the partial answer is kept: past it each attempt only grows the
+	// prompt without finishing the answer.
+	MaxLengthContinuations = 4
+	// lengthContinuationNudge is upstream's continuation prompt for a response
+	// truncated by the output length limit.
+	lengthContinuationNudge = "[System: Your previous response was truncated by the output length limit. " +
+		"Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
+)
+
+// retryAfter reads a provider's own wait off a rate-limit or transient error.
+func retryAfter(err error) (time.Duration, bool) {
+	var apiErr *llm.APIError
+	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter, true
+	}
+	return 0, false
 }
 
 // runTools executes calls concurrently and returns results in call order.

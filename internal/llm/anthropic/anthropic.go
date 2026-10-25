@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -110,7 +111,12 @@ func convertError(ctx context.Context, err error) error {
 	}
 	var apiErr *sdk.Error
 	if errors.As(err, &apiErr) {
-		return &llm.APIError{Provider: "anthropic", Status: apiErr.StatusCode, Body: apiErr.Error()}
+		// The limiter's own wait, when it sends one, beats the local backoff.
+		var after time.Duration
+		if apiErr.Response != nil {
+			after, _ = llm.ParseRetryAfter(apiErr.Response.Header.Get("Retry-After"))
+		}
+		return &llm.APIError{Provider: "anthropic", Status: apiErr.StatusCode, Body: apiErr.Error(), RetryAfter: after}
 	}
 	return fmt.Errorf("anthropic: %w: %w", llm.ErrStreamInterrupted, err)
 }
