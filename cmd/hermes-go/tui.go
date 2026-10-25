@@ -14,11 +14,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/provider"
+	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/tools/approval"
 	"github.com/umi008/hermes-agent-go/internal/tools/clarify"
 	"github.com/umi008/hermes-agent-go/internal/tuigateway"
@@ -152,7 +154,14 @@ func runTUI(ctx context.Context, f tuiFlags, env Env, onListen func(url string))
 	rt, err := newChatRuntime(ctx, f.chatFlags, env, logger, func(rt *chatRuntime) (clarify.Asker, approval.Prompter) {
 		srv, srvErr = tuigateway.New(tuigateway.Options{
 			Token: token,
-			Info:  tuigateway.Info{Model: rt.ep.Model, Provider: rt.ep.Provider, Cwd: rt.cwd, Version: version, Profile: rt.f.profile},
+			Info: tuigateway.Info{
+				Model: rt.ep.Model, Provider: rt.ep.Provider, Cwd: rt.cwd, Version: version, Profile: rt.f.profile,
+			},
+			// Resolved per request: the server is built before buildTools fills
+			// rt.reg, so a value captured here would be nil forever.
+			Inventory: func() tuigateway.Inventory {
+				return tuigateway.Inventory{Tools: rt.reg.Inventory(), Skills: skillInventory(rt.skills)}
+			},
 			NewSession: func(sctx context.Context, source string, emit func(agent.Event)) tuigateway.Session {
 				return tuiSession{rt.newObservedSession(sctx, source, io.Discard, emit)}
 			},
@@ -214,3 +223,25 @@ func (t tuiSession) Run(ctx context.Context, input string) (string, error) {
 }
 
 func (t tuiSession) End(reason string) { t.s.end(reason) }
+
+// skillInventory groups the catalog by category for the client's banner. A
+// skill with no category lands in "uncategorized", which is this port's bucket:
+// the client only counts the entries, and leaving them out would undercount
+// what the agent can actually invoke.
+func skillInventory(c *skills.Catalog) map[string][]string {
+	if c == nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, s := range c.All() {
+		category := "uncategorized"
+		if s.Category != nil && *s.Category != "" {
+			category = *s.Category
+		}
+		out[category] = append(out[category], s.Name)
+	}
+	for _, names := range out {
+		sort.Strings(names)
+	}
+	return out
+}

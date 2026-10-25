@@ -102,13 +102,18 @@ func (s *Server) commandsCatalog() map[string]any {
 			canon[alias] = c.name
 		}
 	}
+	skills := inventoryObject(s.inventory().Skills)
+	skillCount := 0
+	for _, names := range skills {
+		skillCount += len(names)
+	}
 	categories := make([]any, 0, len(order))
 	for _, name := range order {
 		categories = append(categories, map[string]any{"name": name, "pairs": grouped[name]})
 	}
 	return map[string]any{
 		"pairs": pairs, "categories": categories, "canon": canon, "sub": map[string]any{},
-		"skill_count": 0, "warning": "",
+		"skills": skills, "skill_count": skillCount, "warning": "",
 	}
 }
 

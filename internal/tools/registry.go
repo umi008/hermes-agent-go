@@ -46,6 +46,26 @@ type Registry struct {
 	tools map[string]Tool
 }
 
+// Inventory groups the tools that can run by toolset, with names sorted, so a
+// client can show what the agent actually offers. A tool whose Available
+// reports false is left out, as Specs leaves it out.
+func (r *Registry) Inventory() map[string][]string {
+	if r == nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for name, t := range r.tools {
+		if t.Available != nil && !t.Available() {
+			continue
+		}
+		out[t.Toolset] = append(out[t.Toolset], name)
+	}
+	for _, names := range out {
+		sort.Strings(names)
+	}
+	return out
+}
+
 // NewRegistry registers tools, rejecting duplicates and missing fields.
 func NewRegistry(tools ...Tool) (*Registry, error) {
 	r := &Registry{tools: map[string]Tool{}}

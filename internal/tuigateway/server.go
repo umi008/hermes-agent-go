@@ -70,12 +70,28 @@ type Info struct {
 	// Profile is the profile id reported to a canonical client. Empty means
 	// "default".
 	Profile string
+	// Tools is the inventory the client renders: toolset -> tool names. A nil
+	// map answers an empty object, never null.
+	Tools map[string][]string
+	// Skills is the inventory grouped by category, as Tools.
+	Skills map[string][]string
+}
+
+// Inventory is what the agent can do, as the client renders it: tool names
+// grouped by toolset and skill names grouped by category.
+type Inventory struct {
+	Tools  map[string][]string
+	Skills map[string][]string
 }
 
 // Options configure a Server.
 type Options struct {
 	// Token is required; clients pass it as the token query parameter.
 	Token string
+	// Inventory resolves the inventory per request, for a server built before
+	// the runtime's tool registry exists. It wins over Info.Tools and
+	// Info.Skills.
+	Inventory func() Inventory
 	// NewSession is required.
 	NewSession SessionFactory
 	Info       Info
@@ -467,8 +483,8 @@ func (s *Server) info(ls *liveSession) map[string]any {
 		"version":           s.o.Info.Version,
 		"stored_session_id": ls.sess.ID(),
 		"approval_mode":     "manual",
-		"tools":             map[string]any{},
-		"skills":            map[string]any{},
+		"tools":             inventoryObject(s.inventory().Tools),
+		"skills":            inventoryObject(s.inventory().Skills),
 		"running":           false,
 	}
 }
@@ -837,6 +853,24 @@ func (s *Server) storedRows(limit int, includeHidden bool, title string) ([]any,
 		})
 	}
 	return rows, nil
+}
+
+// inventory reads the inventory as of this request: a server built before the
+// runtime finished wiring its registry still reports what exists now.
+func (s *Server) inventory() Inventory {
+	if s.o.Inventory != nil {
+		return s.o.Inventory()
+	}
+	return Inventory{Tools: s.o.Info.Tools, Skills: s.o.Info.Skills}
+}
+
+// inventoryObject keeps an absent inventory an empty object on the wire: the
+// client flattens these maps to count entries, and null would break that.
+func inventoryObject(m map[string][]string) map[string][]string {
+	if m == nil {
+		return map[string][]string{}
+	}
+	return m
 }
 
 // nilIfEmpty keeps an absent value null on the wire instead of an empty string.
