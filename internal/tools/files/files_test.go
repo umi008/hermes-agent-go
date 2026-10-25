@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,5 +261,109 @@ func TestPatchUnicodeNormalized(t *testing.T) {
 func TestFindMatchesEmptyNeedle(t *testing.T) {
 	if spans, strategy := FindMatches("abc", ""); len(spans) != 0 || strategy != "" {
 		t.Fatalf("spans = %v, strategy = %q", spans, strategy)
+	}
+}
+
+// TestSimilarity pins Python's difflib.SequenceMatcher.ratio(), which the two
+// similarity strategies threshold against. The first cases are pairs where its
+// greedy matching gives a lower ratio than an optimal LCS, so a naive port
+// disagrees here and drifts across the 0.5/0.7/0.8 thresholds.
+func TestSimilarity(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want float64
+	}{
+		{"bcbcbcba", "abbccaac", 0.5},
+		{"abacab", "bbaabb", 0.5},
+		{"ccbcbac", "caaacca", 0.4286},
+		{"return 1 + 1", "return 1 + 2", 0.9167},
+		{"x := compute(alpha, gamma)", "x := compute(alpha, beta)", 0.8627},
+		{"startup() {", "start() {", 0.9},
+		{"abc", "abc", 1},
+		{"", "", 1},
+		{"abc", "", 0},
+	}
+	for _, tt := range tests {
+		if got := similarity(tt.a, tt.b); math.Abs(got-tt.want) > 5e-4 {
+			t.Errorf("similarity(%q, %q) = %.4f, want %.4f", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+// TestPatchBlockAnchor pins strategy 8: the first and last lines are identical
+// anchors, and a single candidate makes the middle similarity threshold 0.50.
+func TestPatchBlockAnchor(t *testing.T) {
+	r, dir := setup(t)
+	p := filepath.Join(dir, "b.go")
+	put(t, p, "func a() {\n\treturn 1\n}\n\nfunc b() {\n\treturn 1 + 1\n}\n")
+	obj, e := call(t, r, "patch", map[string]any{
+		"path":       "b.go",
+		"old_string": "func b() {\n\treturn 1 + 2\n}",
+		"new_string": "func b() {\n\treturn 1 + 3\n}",
+	})
+	if e != "" {
+		t.Fatalf("error = %q", e)
+	}
+	if obj["strategy"] != "block_anchor" {
+		t.Fatalf("strategy = %v", obj["strategy"])
+	}
+	got, _ := os.ReadFile(p)
+	if want := "func a() {\n\treturn 1\n}\n\nfunc b() {\n\treturn 1 + 3\n}\n"; string(got) != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestPatchContextAware pins strategy 9: no exact anchors, every non-blank line
+// at least 0.80 similar, which is what lets a drifted block still land.
+func TestPatchContextAware(t *testing.T) {
+	r, dir := setup(t)
+	p := filepath.Join(dir, "c.go")
+	put(t, p, "start() {\n\tx := compute(alpha, beta)\n\tdone()\n}\n")
+	obj, e := call(t, r, "patch", map[string]any{
+		"path":       "c.go",
+		"old_string": "startup() {\n\tx := compute(alpha, gamma)\n\tdone();\n}",
+		"new_string": "startup() {\n\tx := compute(alpha, delta)\n\tdone();\n}",
+	})
+	if e != "" {
+		t.Fatalf("error = %q", e)
+	}
+	if obj["strategy"] != "context_aware" {
+		t.Fatalf("strategy = %v", obj["strategy"])
+	}
+	got, _ := os.ReadFile(p)
+	if want := "startup() {\n\tx := compute(alpha, delta)\n\tdone();\n}\n"; string(got) != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestPatchGuards pins upstream's two refusals that keep an approximate match
+// from rewriting more than the caller meant: a whitespace-only anchor matches
+// trivially, and replace_all over similarity windows rewrites text nobody
+// quoted.
+func TestPatchGuards(t *testing.T) {
+	r, dir := setup(t)
+	p := filepath.Join(dir, "g.go")
+	src := "func a() {\n\treturn 1 + 1\n}\nfunc a() {\n\treturn 1 + 2\n}\n"
+	put(t, p, src)
+
+	if _, e := call(t, r, "patch", map[string]any{"path": "g.go", "old_string": "   \n\t", "new_string": "x"}); !strings.Contains(e, "only whitespace") {
+		t.Errorf("blank anchor error = %q", e)
+	}
+	// Two windows share the block's anchors, so both are approximate matches.
+	_, e := call(t, r, "patch", map[string]any{
+		"path": "g.go", "old_string": "func a() {\n\treturn 1 + 3\n}", "new_string": "func a() {\n\treturn 9\n}",
+		"replace_all": true,
+	})
+	if !strings.Contains(e, "approximate") {
+		t.Fatalf("replace_all over fuzzy matches = %q", e)
+	}
+	if got, _ := os.ReadFile(p); string(got) != src {
+		t.Fatalf("file changed: %q", got)
+	}
+	// Without replace_all the ambiguity is reported as before.
+	if _, e := call(t, r, "patch", map[string]any{
+		"path": "g.go", "old_string": "func a() {\n\treturn 1 + 3\n}", "new_string": "func a() {\n\treturn 9\n}",
+	}); !strings.Contains(e, "Found 2 matches") {
+		t.Errorf("ambiguous error = %q", e)
 	}
 }
