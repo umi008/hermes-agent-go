@@ -46,7 +46,7 @@ Assumptions:
 | T9 Retry-After, max_tokens continuation | S9 | inline | done | c2b4d0d, ad69f48 |
 | T10 patch strategies, .gitignore | S10 | inline | done | 0fbb2dd, 02c83a4, 7d356e3 |
 | T11 tool-call argument guard | S9 | inline + verify | done | 77e7904, 2eec98c |
-| T12 TUI inventory and session lifetime | S8 | inline + verify | done | see L20, L21 |
+| T12 TUI inventory and session lifetime | S8 | inline + verify | done | 1a563db, dc03da7, d9968b8, 0dcc1de |
 
 ## Log
 
