@@ -66,7 +66,11 @@ func (s *Server) handleSessionChatStream(w http.ResponseWriter, r *http.Request)
 		release()
 		return
 	}
-	history := s.sessionHistory(w, r, turn)
+	history, ok := s.sessionHistory(w, r, turn)
+	if !ok {
+		release()
+		return
+	}
 
 	messageID, runID := "msg_"+randomHex(16), "run_"+randomHex(16)
 	events := make(chan chatEvent, sessionChatQueue)

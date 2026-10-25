@@ -61,7 +61,10 @@ func (s *Server) handleSessionChat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	history := s.sessionHistory(w, r, turn)
+	history, ok := s.sessionHistory(w, r, turn)
+	if !ok {
+		return
+	}
 	reply, err := s.runSessionChat(r.Context(), turn, history, nil, nil)
 	if err != nil && r.Context().Err() == nil {
 		s.logger.Warn("session chat failed", "session", turn.session, "err", err)
@@ -324,12 +327,14 @@ func chatStatus(reply Reply, err error, interrupted bool) string {
 }
 
 // sessionHistory loads the conversation a session chat replays: every active
-// stored row, as the agent's seed history.
-func (s *Server) sessionHistory(w http.ResponseWriter, r *http.Request, turn *chatTurn) []llm.Message {
+// stored row, as the agent's seed history. A failed read answers 500 and
+// reports false: running the turn without its transcript would silently lose
+// the conversation.
+func (s *Server) sessionHistory(w http.ResponseWriter, r *http.Request, turn *chatTurn) ([]llm.Message, bool) {
 	rows, err := turn.store.ActiveMessages(r.Context(), turn.session)
 	if err != nil {
 		s.sessionFailure(w, err)
-		return nil
+		return nil, false
 	}
 	entries := make([]historyEntry, 0, len(rows))
 	for _, m := range rows {
@@ -339,7 +344,7 @@ func (s *Server) sessionHistory(w http.ResponseWriter, r *http.Request, turn *ch
 		}
 		entries = append(entries, e)
 	}
-	return toMessages(entries)
+	return toMessages(entries), true
 }
 
 // runSessionChat runs one turn over the stored session. out, onTool and
