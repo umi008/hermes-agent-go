@@ -57,7 +57,7 @@ minutes. It reads the same Hermes home as upstream, so an existing
 | `install.ps1` | `%LOCALAPPDATA%\hermes-go\bin\hermes-go.exe` | Verifies the checksum and adds the directory to the user PATH. |
 | `go install` | `$(go env GOPATH)/bin` | Builds from source; the binary is CGO-free, so no C toolchain is needed. |
 | Release archive | anywhere | Download from [Releases](https://github.com/umi008/hermes-agent-go/releases) and unpack. |
-| Docker | image | See the README. |
+| Docker | `ghcr.io/umi008/hermes-go` | Published on release tags from `v0.2.0`; the home lives in the `/data` volume. See the README. |
 
 Both scripts read these environment variables:
 

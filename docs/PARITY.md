@@ -109,12 +109,15 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Desktop app, dashboard web UI | out | `apps/desktop/`, `web/` |
 | ACP | out | — |
 
-## Packaging (V6)
+## Packaging (V6, V8)
 
 | Feature | Status | Upstream |
 |---|---|---|
 | Single CGO-free binary | done (`CGO_ENABLED=0`, pure-Go SQLite; `hermes-go version`) | — |
-| Dockerfile (distroless) | done (static, nonroot, `HERMES_HOME=/data`; no shell, so the local `terminal` tool cannot run inside it) | `Dockerfile` |
+| Dockerfile (distroless) | done (static, nonroot, `HERMES_HOME=/data`; no shell, so the local `terminal` tool cannot run inside it; multi-arch image on `ghcr.io/umi008/hermes-go` from release tags) | `Dockerfile` |
+| One-line install scripts | done (`scripts/install.sh`, `scripts/install.ps1` from GitHub releases with checksum verification; `go install`) | `scripts/install.sh`, `scripts/install.ps1` |
+| `doctor` | partial (offline checks: home, `.env`, config, provider, Tavily key, docker, git; no connectivity, platform or state checks, no `--fix`) | `hermes_cli/doctor*.py` |
+| `setup` wizard | out until the owner decides: the port never writes `config.yaml` | `hermes_cli/setup.py` |
 | goreleaser, GitHub Actions CI | done (CI: vet, `-race` tests on Linux and Windows, lint, image build and smoke; release on `v*` tags: linux, darwin and windows on amd64 and arm64, checksums) | `.github/workflows/` |
 
 ## Out of scope (explicit)

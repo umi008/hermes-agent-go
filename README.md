@@ -86,6 +86,7 @@ With Docker (the home lives in the `/data` volume; `serve` must listen on
 `0.0.0.0` inside the container, which requires an API key):
 
 ```sh
+docker run --rm -it -v hermes:/data ghcr.io/umi008/hermes-go chat   # published from v0.2.0
 docker build -t hermes-go .
 docker run --rm -it -v hermes:/data hermes-go chat
 docker run --rm -p 8787:8787 -v hermes:/data -e HERMES_API_KEY=... hermes-go serve --addr 0.0.0.0:8787

@@ -114,7 +114,7 @@ compatibility with the Hermes home where practical.
 
 ## Known V6 gaps (deliberate, tracked)
 
-- No container image is published; the image is built in CI only. No Homebrew tap, Scoop bucket, signing or SBOM.
+- The image is published to `ghcr.io/umi008/hermes-go` on `v*` tags (V8), for linux/amd64 and linux/arm64; no Homebrew tap, Scoop bucket, signing or SBOM.
 - The distroless image has no shell, so the local `terminal` backend fails inside it.
 - `serve` in a container must listen on `0.0.0.0`, which requires an API key.
 
