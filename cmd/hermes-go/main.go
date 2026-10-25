@@ -7,10 +7,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"time"
 )
 
 func main() {
+	info, ok := debug.ReadBuildInfo()
+	version = moduleVersion(version, info, ok)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	interrupt := make(chan struct{}, 1)

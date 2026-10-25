@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +53,24 @@ type Env struct {
 // -ldflags "-X main.version=1.2.3" (GoReleaser passes the tag without its
 // leading v). Development builds report "dev".
 var version = "dev"
+
+// pseudoVersion matches the timestamp-and-commit tail Go stamps on untagged
+// builds: a local `go build` in a checkout, or `go install ...@main`.
+var pseudoVersion = regexp.MustCompile(`\d{14}-[0-9a-f]{12}`)
+
+// moduleVersion keeps an injected version and otherwise reports the release
+// tag Go records for `go install ...@vX.Y.Z`, without its leading v. Untagged
+// builds ("(devel)", pseudo-versions, +dirty) stay "dev".
+func moduleVersion(injected string, info *debug.BuildInfo, ok bool) string {
+	if injected != "dev" || !ok || info == nil {
+		return injected
+	}
+	v := info.Main.Version
+	if v == "" || v == "(devel)" || strings.Contains(v, "+") || pseudoVersion.MatchString(v) {
+		return injected
+	}
+	return strings.TrimPrefix(v, "v")
+}
 
 const usage = `Usage: hermes-go <command> [flags]
 
