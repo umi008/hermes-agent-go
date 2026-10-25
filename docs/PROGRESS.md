@@ -149,7 +149,7 @@ compatibility with the Hermes home where practical.
 - No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
 - Smart approval (`approvals.mode: smart`) covers the surfaces that can ask a human: the interactive CLI, the TUI wire and the gateways. An unattended run (`-q`, `serve`, cron) resolves from its own mode before the guardian, as upstream. Not ported: upstream approval plugin hooks (`pre_approval_request`/`post_approval_response`), `temperature: 0` on the verdict (the client contract has no sampling knobs), per-task `reasoning_effort`, the pending-approval fallback and gateway inline keyboards.
 - `chat -q` has no prompter, so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
-- `patch` ports exact and whitespace-tolerant matching only; upstream's further fuzzy strategies are not ported. No `.gitignore` filtering in `search_files`.
+- `patch` ports upstream's whole strategy ladder except `trimmed_boundary` (dominated by `line_trimmed`): exact, line-trimmed, whitespace-normalized, indentation-flexible, escaped-whitespace, unicode-normalized, block-anchor and context-aware, with `difflib`'s exact similarity ratio, plus upstream's two guards (no whitespace-only anchor, no `replace_all` over similarity matches). Not ported: the `boundary_note` warning on non-exact matches. No `.gitignore` filtering in `search_files`.
 - Docker: killing `docker exec` does not stop the process inside the container; the container is removed on exit.
 - Command deobfuscation is limited to upstream's normalization; no parser-limit block.
 - `clarify` returns "not available" in `chat -q`; the interactive CLI answers it.
