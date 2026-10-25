@@ -14,7 +14,8 @@ import (
 
 // mcpServers reads mcp_servers like upstream _load_mcp_config. ${VAR}
 // references are already expanded by config.Load. HERMES_SAFE_MODE turns
-// MCP off, and a server with enabled: false is skipped.
+// MCP off, and a server with enabled: false is skipped. tools.resources
+// and tools.prompts turn the server's utility tools off.
 func mcpServers(cfg *config.Config, lookup config.LookupFunc, logger *slog.Logger) []mcpclient.Server {
 	if v, _ := lookup("HERMES_SAFE_MODE"); boolish(v, false) {
 		return nil
@@ -53,10 +54,22 @@ func mcpServers(cfg *config.Config, lookup config.LookupFunc, logger *slog.Logge
 				s.Include = append([]string{}, strs(inc)...)
 			}
 			s.Exclude = strs(f["exclude"])
+			s.Resources = toggle(f, "resources")
+			s.Prompts = toggle(f, "prompts")
 		}
 		out = append(out, s)
 	}
 	return out
+}
+
+// toggle reads an optional utility switch; unset keeps the default on.
+func toggle(m map[string]any, key string) *bool {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	b := boolish(v, true)
+	return &b
 }
 
 // boolish is upstream _parse_boolish: bools and numbers by truth, the

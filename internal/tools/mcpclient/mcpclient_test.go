@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -44,13 +45,63 @@ func testServer(t *testing.T) *mcp.Server {
 
 func connectMemory(t *testing.T, s Server) *Manager {
 	t.Helper()
-	srvT, cliT := mcp.NewInMemoryTransports()
-	ss, err := testServer(t).Connect(t.Context(), srvT, nil)
-	if err != nil {
-		t.Fatal(err)
+	return connectServer(t, s, testServer(t))
+}
+
+// memory serves srv over in-memory transports, one fresh server session
+// per dial, and records every server session so a test can drop one.
+type memory struct {
+	t        *testing.T
+	srv      *mcp.Server
+	mu       sync.Mutex
+	sessions []*mcp.ServerSession
+	clients  []mcp.Connection
+	fail     error
+}
+
+// recorded keeps the client side of each dial so a test can cut the
+// transport under an in-flight call.
+type recorded struct {
+	mcp.Transport
+	m *memory
+}
+
+func (r recorded) Connect(ctx context.Context) (mcp.Connection, error) {
+	c, err := r.Transport.Connect(ctx)
+	if err == nil {
+		r.m.mu.Lock()
+		r.m.clients = append(r.m.clients, c)
+		r.m.mu.Unlock()
 	}
-	t.Cleanup(func() { _ = ss.Close() })
-	s.transport = cliT
+	return c, err
+}
+
+func (m *memory) transport() (mcp.Transport, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail != nil {
+		return nil, m.fail
+	}
+	srvT, cliT := mcp.NewInMemoryTransports()
+	ss, err := m.srv.Connect(context.Background(), srvT, nil)
+	if err != nil {
+		m.t.Fatal(err)
+	}
+	m.sessions = append(m.sessions, ss)
+	m.t.Cleanup(func() { _ = ss.Close() })
+	return recorded{Transport: cliT, m: m}, nil
+}
+
+func (m *memory) dials() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.sessions)
+}
+
+func connectServer(t *testing.T, s Server, srv *mcp.Server) *Manager {
+	t.Helper()
+	mem := &memory{t: t, srv: srv}
+	s.transport = mem.transport
 	m := Connect(t.Context(), Options{Servers: []Server{s}})
 	t.Cleanup(func() { _ = m.Close() })
 	return m
