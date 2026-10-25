@@ -16,6 +16,16 @@ import (
 )
 
 func sessionsServer(t *testing.T) (*httptest.Server, *state.Store) {
+	return sessionsServerWith(t, &fakeBackend{})
+}
+
+// sessionsServerWith is sessionsServer over a scripted backend.
+func sessionsServerWith(t *testing.T, b *fakeBackend) (*httptest.Server, *state.Store) {
+	return sessionsServerConfig(t, b, Config{})
+}
+
+// sessionsServerConfig is sessionsServer with extra server configuration.
+func sessionsServerConfig(t *testing.T, b *fakeBackend, cfg Config) (*httptest.Server, *state.Store) {
 	t.Helper()
 	var mu sync.Mutex
 	tick := time.Unix(1_700_000_000, 0)
@@ -29,7 +39,8 @@ func sessionsServer(t *testing.T) (*httptest.Server, *state.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return responsesServer(t, &fakeBackend{}, Config{Sessions: st}), st
+	cfg.Sessions = st
+	return responsesServer(t, b, cfg), st
 }
 
 func expect(t *testing.T, srv *httptest.Server, method, path, body string, status int, want string) string {

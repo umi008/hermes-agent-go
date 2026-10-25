@@ -80,6 +80,9 @@ type SessionOptions struct {
 	Resume bool
 	// History seeds the conversation with prior messages.
 	History []llm.Message
+	// Model pins this session's model on the backend's provider, as a session
+	// model lock does upstream; empty serves the backend's model.
+	Model string
 	// Instructions is an ephemeral system prompt layered on the core one
 	// for this session only.
 	Instructions string
@@ -223,6 +226,7 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("DELETE /api/sessions/{id}", s.authenticated(http.HandlerFunc(s.handleDeleteSession)))
 	mux.Handle("GET /api/sessions/{id}/messages", s.authenticated(http.HandlerFunc(s.handleSessionMessages)))
 	mux.Handle("POST /api/sessions/{id}/fork", s.authenticated(http.HandlerFunc(s.handleForkSession)))
+	mux.Handle("POST /api/sessions/{id}/chat", s.authenticated(http.HandlerFunc(s.handleSessionChat)))
 	return s.logRequests(mux)
 }
 
