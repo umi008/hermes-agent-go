@@ -227,6 +227,7 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /api/sessions/{id}/messages", s.authenticated(http.HandlerFunc(s.handleSessionMessages)))
 	mux.Handle("POST /api/sessions/{id}/fork", s.authenticated(http.HandlerFunc(s.handleForkSession)))
 	mux.Handle("POST /api/sessions/{id}/chat", s.authenticated(http.HandlerFunc(s.handleSessionChat)))
+	mux.Handle("POST /api/sessions/{id}/chat/stream", s.authenticated(http.HandlerFunc(s.handleSessionChatStream)))
 	return s.logRequests(mux)
 }
 
