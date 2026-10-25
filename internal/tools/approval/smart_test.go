@@ -50,6 +50,13 @@ func TestStripShellComments(t *testing.T) {
 		{"echo 'a # b'", "echo 'a # b'"},
 		{"echo \"a \\\" # b\"", "echo \"a \\\" # b\""},
 		{"# only a comment", ""},
+		// A `#` inside a word is literal to the shell, so the guardian must see
+		// it: stripping it would hide an executed tail behind the assessed text.
+		{"echo a#b", "echo a#b"},
+		{"cat foo#; rm -rf ~", "cat foo#; rm -rf ~"},
+		{"ls;# note", "ls;"},
+		// Upstream trims Python whitespace, which includes these separators.
+		{"ls\x1c\x1d", "ls"},
 		{"ls\n\n# drop me\ncd /tmp", "ls\ncd /tmp"},
 		// A whitespace-only line is truthy upstream, so it survives; only truly
 		// empty and comment-only lines are dropped.

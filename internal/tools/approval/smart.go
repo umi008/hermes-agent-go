@@ -155,10 +155,14 @@ func parseVerdict(answer string) Verdict {
 	return VerdictEscalate
 }
 
-// stripShellComments is upstream _strip_shell_comments: unquoted `# ...` goes
-// before assessment, quoted `#` survives, and blank or comment-only lines are
-// dropped. Not a POSIX parser: the goal is removing the low-hanging injection
-// surface, not parsing shell.
+// stripShellComments strips unquoted `# ...` before assessment, keeps quoted
+// `#`, and drops blank or comment-only lines.
+//
+// A `#` only starts a comment at the beginning of a word, which is stricter
+// than upstream: stripping `cat foo#; rm -rf ~` down to `cat foo` would show
+// the guardian less than the shell executes, so the assessed text here is
+// never shorter than the command's effect. Not a POSIX parser either way: the
+// goal is removing the low-hanging injection surface.
 func stripShellComments(command string) string {
 	cleaned := make([]string, 0, strings.Count(command, "\n")+1)
 	for _, line := range strings.Split(command, "\n") {
@@ -170,10 +174,13 @@ func stripShellComments(command string) string {
 	if len(cleaned) == 0 {
 		return ""
 	}
-	return strings.TrimRight(strings.Join(cleaned, "\n"), " \t\r\n\v\f")
+	// Python's str.rstrip() trims every whitespace character, including the
+	// information separators U+001C..U+001F.
+	return strings.TrimRight(strings.Join(cleaned, "\n"), " \t\r\n\v\f\x1c\x1d\x1e\x1f")
 }
 
-// stripLineComment is upstream's quote-aware _strip_line_comment.
+// stripLineComment is upstream's quote-aware _strip_line_comment with the
+// word-boundary rule above.
 func stripLineComment(line string) string {
 	inSingle, inDouble := false, false
 	for i := 0; i < len(line); i++ {
@@ -188,8 +195,20 @@ func stripLineComment(line string) string {
 		case ch == '"' && !inSingle:
 			inDouble = !inDouble
 		case ch == '#' && !inSingle && !inDouble:
-			return strings.TrimRight(line[:i], " \t")
+			if i == 0 || wordBreak(line[i-1]) {
+				return strings.TrimRight(line[:i], " \t")
+			}
 		}
 	}
 	return line
+}
+
+// wordBreak reports whether c ends a shell word, so the `#` after it starts a
+// comment.
+func wordBreak(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r', ';', '&', '|', '(', ')', '<', '>':
+		return true
+	}
+	return false
 }

@@ -12,10 +12,11 @@ import (
 // The approval conversation, reusing the CLI's wording so the two menus read
 // the same (hermes_cli/repl.go, upstream locales/en.yaml `approval.*`).
 const (
-	approvalReprompt = "Reply [o]nce, [s]ession or [d]eny."
-	approvalDenied   = "✗ Denied"
-	approvalOnce     = "✓ Allowed once"
-	approvalSession  = "✓ Allowed for this session"
+	approvalReprompt      = "Reply [o]nce, [s]ession or [d]eny."
+	approvalSmartReprompt = "Reply [o]nce or [d]eny."
+	approvalDenied        = "✗ Denied"
+	approvalOnce          = "✓ Allowed once"
+	approvalSession       = "✓ Allowed for this session"
 )
 
 // ApprovalPrompt renders the upstream dangerous-command menu for a chat. The
@@ -42,7 +43,12 @@ func (c *chat) ask(ctx context.Context, r approval.Request) (approval.Choice, er
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
-			if err := c.say(ctx, approvalReprompt); err != nil {
+			reprompt := approvalReprompt
+			if r.SmartDenied {
+				// The menu offered no scope, so the re-prompt must not either.
+				reprompt = approvalSmartReprompt
+			}
+			if err := c.say(ctx, reprompt); err != nil {
 				return approval.Deny, err
 			}
 		}
