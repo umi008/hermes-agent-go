@@ -158,7 +158,7 @@ func (s *Server) slashExec(c *conn, params map[string]any) (any, *rpcError) {
 		return nil, canonErr(reasonInvalidParams, "command is required")
 	}
 	ls, err := s.session(sid)
-	if err != nil || ls.conn != c {
+	if err != nil || ls.connection() != c {
 		return nil, canonErr(reasonNotFound, "session not found")
 	}
 	name, arg, _ := strings.Cut(strings.TrimPrefix(command, "/"), " ")

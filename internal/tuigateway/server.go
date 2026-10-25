@@ -100,12 +100,31 @@ type Options struct {
 	Store *state.Store
 	// ResumeSession opens a stored session as a live one. Nil refuses resume.
 	ResumeSession ResumeFactory
+	// OrphanGrace is how long a session survives the connection that created it
+	// dropping, so a client that reconnects can reattach the conversation
+	// instead of rebuilding it from the store. Zero or negative means
+	// defaultOrphanGrace.
+	OrphanGrace time.Duration
 	// Logger receives debug and warning lines. Nil discards.
 	Logger *slog.Logger
 }
 
 const (
-	closeReason   = "tui_close"
+	closeReason = "tui_close"
+	// defaultOrphanGrace is upstream's ws_orphan_reap_grace_s: a browser refresh
+	// mints a new session, so a dropped one is only parked for this long.
+	defaultOrphanGrace = 20 * time.Second
+)
+
+// orphanGrace is the grace a dropped connection leaves its sessions.
+func (o Options) orphanGrace() time.Duration {
+	if o.OrphanGrace > 0 {
+		return o.OrphanGrace
+	}
+	return defaultOrphanGrace
+}
+
+const (
 	defaultSource = "tui"
 	readLimit     = 16 << 20
 
@@ -170,7 +189,9 @@ func New(o Options) (*Server, error) {
 }
 
 // Close disconnects every client, interrupts running turns, ends every
-// session with "tui_close" and waits for the turns to return.
+// session with "tui_close" and waits for the turns to return. It ends the
+// detached sessions too, and stops their orphan timers, so nothing outlives
+// the server.
 func (s *Server) Close() {
 	s.mu.Lock()
 	if s.closed {
@@ -194,6 +215,9 @@ func (s *Server) Close() {
 	s.stop()
 	s.wg.Wait()
 	for _, ls := range sessions {
+		// No timer may outlive the server: it would reap into a server that is
+		// already gone.
+		ls.stopReap()
 		ls.sess.End(closeReason)
 	}
 }
@@ -315,7 +339,7 @@ func (s *Server) serveConn(ctx context.Context, c *conn) {
 			continue
 		}
 		if f.Method == "" {
-			s.resolveResponse(f)
+			s.resolveResponse(c, f)
 			continue
 		}
 		result, rerr := s.dispatch(c, f.Method, f.Params)
@@ -332,29 +356,93 @@ func (s *Server) serveConn(ctx context.Context, c *conn) {
 	}
 }
 
-// detach ends the sessions a closed connection owned and withdraws its open
-// requests, so no turn waits on a client that is gone.
+// detach detaches the sessions a closed connection owned and withdraws its
+// open requests, so no turn waits on a client that is gone. A session is not
+// ended here: it survives for the orphan grace, so a reconnect can reattach
+// it, and the reaper ends it if nobody comes back.
 func (s *Server) detach(c *conn) {
 	s.mu.Lock()
 	delete(s.conns, c)
-	var owned []*liveSession
-	for id, ls := range s.sessions {
-		if ls.conn == c {
-			owned = append(owned, ls)
-			delete(s.sessions, id)
-		}
+	live := make([]*liveSession, 0, len(s.sessions))
+	for _, ls := range s.sessions {
+		live = append(live, ls)
 	}
+	s.mu.Unlock()
+	// A binding is guarded by ls.mu, which must never be taken under Server.mu
+	// (a turn finishing holds ls.mu and then Server.mu to start its queued
+	// input), so the scan above only snapshots and the per-session work happens
+	// here.
+	for _, ls := range live {
+		if !ls.detachConn(c) {
+			continue
+		}
+		ls.scheduleReap(s.o.orphanGrace())
+	}
+	// Sweep the requests only after every session is marked detached: a request
+	// registered before the detach is swept here, and one that arrives after it
+	// is refused by the detach check. Sweeping first left the gap that wedged a
+	// turn across a rebind.
+	s.mu.Lock()
 	for _, req := range s.requests {
 		if req.conn == c {
 			s.finish(req, nil)
 		}
 	}
 	s.mu.Unlock()
-	// Closing waits for each running turn; do it off the read loop so a turn
-	// slow to honour cancellation never stalls the connection.
-	for _, ls := range owned {
-		go ls.close()
+}
+
+// reapSession ends a session nobody reattached within the orphan grace. The
+// claim decides the race with a reconnect: only a session still registered and
+// still detached is taken, and a rebound one is left alone. The close runs off
+// the read loop, so a turn slow to honour cancellation never stalls a client,
+// and it ends the transcript with the same "tui_close" reason a disconnect
+// used to.
+func (s *Server) reapSession(id string) {
+	s.mu.Lock()
+	ls, ok := s.sessions[id]
+	s.mu.Unlock()
+	if !ok || !ls.claimReap() {
+		return
 	}
+	s.mu.Lock()
+	registered := s.sessions[id] == ls
+	if registered {
+		delete(s.sessions, id)
+		// Add under the lock that removes the session, as closeSession does.
+		s.wg.Add(1)
+	}
+	s.mu.Unlock()
+	if registered {
+		go func() {
+			defer s.wg.Done()
+			ls.close()
+		}()
+	}
+}
+
+// connLive reports whether c is still an attached client. A socket whose read
+// loop has not noticed the drop yet still counts: the binding is what detach
+// clears, so the detach path is the only place a client becomes dead.
+func (s *Server) connLive(c *conn) bool {
+	if c == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.conns[c]
+	return ok
+}
+
+// liveSessions snapshots the registered sessions so a caller can inspect their
+// bindings without holding Server.mu, which must not guard ls.mu.
+func (s *Server) liveSessions() []*liveSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*liveSession, 0, len(s.sessions))
+	for _, ls := range s.sessions {
+		out = append(out, ls)
+	}
+	return out
 }
 
 func (s *Server) dispatch(c *conn, method string, raw json.RawMessage) (any, *rpcError) {
@@ -369,9 +457,9 @@ func (s *Server) dispatch(c *conn, method string, raw json.RawMessage) (any, *rp
 	case "session.create":
 		return s.createSession(c, str("source"))
 	case "prompt.submit":
-		return s.submit(params)
+		return s.submit(c, params)
 	case "session.interrupt":
-		ls, rerr := s.session(str("session_id"))
+		ls, rerr := s.ownedSession(c, str("session_id"))
 		if rerr != nil {
 			return nil, rerr
 		}
@@ -380,9 +468,9 @@ func (s *Server) dispatch(c *conn, method string, raw json.RawMessage) (any, *rp
 		}
 		return map[string]any{"status": "not_interrupted", "interrupted": false}, nil
 	case "session.close":
-		return s.closeSession(str("session_id")), nil
+		return s.closeOwned(c, str("session_id"))
 	case "clarify.lock":
-		return s.lockClarify(str("request_id"), str("question_id"), params["answer"])
+		return s.lockClarify(c, str("request_id"), str("question_id"), params["answer"])
 	case "session.active_list":
 		return s.activeList(c), nil
 	case "runtime.describe":
@@ -489,15 +577,59 @@ func (s *Server) info(ls *liveSession) map[string]any {
 	}
 }
 
-func (s *Server) closeSession(id string) map[string]any {
-	s.mu.Lock()
-	ls, ok := s.sessions[id]
-	delete(s.sessions, id)
-	s.mu.Unlock()
-	if ok {
-		go ls.close()
+// ownedSession resolves a session only for the connection that owns it. A
+// session parked for its own client, or one another live client drives, is not
+// found from here: the grace window makes an id reachable that was previously
+// unreachable, and knowing an id must not hand over a conversation.
+func (s *Server) ownedSession(c *conn, id string) (*liveSession, *rpcError) {
+	ls, rerr := s.session(id)
+	if rerr != nil {
+		return nil, rerr
 	}
-	return map[string]any{"closed": ok, "messages": []any{}}
+	if ls.connection() != c {
+		return nil, &rpcError{Code: codeNoSession, Message: "session not found",
+			Data: map[string]any{"reason": reasonNotFound}}
+	}
+	return ls, nil
+}
+
+// closeOwned closes a session only when the caller owns it.
+func (s *Server) closeOwned(c *conn, id string) (any, *rpcError) {
+	// An unknown id, an empty one, a parked session and one another client
+	// drives all answer the same thing: reporting them differently would tell a
+	// caller which ids exist.
+	if ls, rerr := s.ownedSession(c, id); rerr == nil {
+		return s.closeLive(ls), nil
+	}
+	return map[string]any{"closed": false, "messages": []any{}}, nil
+}
+
+func (s *Server) closeSession(id string) map[string]any {
+	if ls, err := s.session(id); err == nil {
+		return s.closeLive(ls)
+	}
+	return map[string]any{"closed": false, "messages": []any{}}
+}
+
+// closeLive closes the session it was given, so a caller that already resolved
+// it does not race a second lookup against detach.
+func (s *Server) closeLive(ls *liveSession) map[string]any {
+	s.mu.Lock()
+	registered := s.sessions[ls.id] == ls
+	if registered {
+		delete(s.sessions, ls.id)
+		// Add under the same lock that removes the session: Close clears this
+		// map before it waits, so an Add after that point would race its Wait.
+		s.wg.Add(1)
+	}
+	s.mu.Unlock()
+	if registered {
+		go func() {
+			defer s.wg.Done()
+			ls.close()
+		}()
+	}
+	return map[string]any{"closed": registered, "messages": []any{}}
 }
 
 // describe is the canonical handshake result (upstream
@@ -559,11 +691,32 @@ func (s *Server) resumeSession(c *conn, params map[string]any) (any, *rpcError) 
 	// The client resumes by the stored id it was given, so both the live id
 	// and the stored id resolve to the same conversation.
 	if sid != "" {
-		if ls, err := s.session(sid); err == nil && ls.conn == c {
+		if ls, err := s.session(sid); err == nil {
+			// A parked session is adoptable; one another live client drives is
+			// not found, and saying so here keeps the answer independent of
+			// whether a store is configured.
+			if ls.bind(c) {
+				return s.snapshot(ls, omit || deferHistory), nil
+			}
+			return nil, canonErr(reasonNotFound, "session not found")
+		}
+		if ls := s.liveByStoredID(c, sid); ls != nil && ls.bind(c) {
 			return s.snapshot(ls, omit || deferHistory), nil
 		}
-		if ls := s.liveByStoredID(c, sid); ls != nil {
-			return s.snapshot(ls, omit || deferHistory), nil
+		// A session waiting out its orphan grace is still live: reattaching it
+		// keeps the conversation instead of rebuilding it from the store. One
+		// that another live client drives is refused, because this gateway
+		// serves a single client per session and taking it over would silence
+		// that client.
+		var refused bool
+		for _, ls := range s.liveByStoredIDAny(sid) {
+			if ls.bind(c) {
+				return s.snapshot(ls, omit || deferHistory), nil
+			}
+			refused = true
+		}
+		if refused {
+			return nil, canonErr(reasonNotFound, "session not found")
 		}
 	}
 	storedID := sid
@@ -604,14 +757,27 @@ func (s *Server) liveByStoredID(c *conn, storedID string) *liveSession {
 	if storedID == "" {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, ls := range s.sessions {
-		if ls.conn == c && ls.sess.ID() == storedID {
+	for _, ls := range s.liveSessions() {
+		if ls.connection() == c && ls.sess.ID() == storedID {
 			return ls
 		}
 	}
 	return nil
+}
+
+// liveByStoredIDAny is every registered live session over storedID, whichever
+// client drives it: a detached one is up for reattach.
+func (s *Server) liveByStoredIDAny(storedID string) []*liveSession {
+	if storedID == "" {
+		return nil
+	}
+	var out []*liveSession
+	for _, ls := range s.liveSessions() {
+		if ls.sess.ID() == storedID {
+			out = append(out, ls)
+		}
+	}
+	return out
 }
 
 // checkResumeParams refuses an unknown key by name.
@@ -798,17 +964,16 @@ func listIncludeHidden(params map[string]any) (bool, *rpcError) {
 }
 
 // liveRows are this connection's sessions, newest first. A session belongs to
-// the connection that created it, so another client's conversation is never
-// listed here.
+// the connection that drives it, so another client's conversation is never
+// listed here and a detached one is listed by nobody.
 func (s *Server) liveRows(c *conn, limit int) []any {
-	s.mu.Lock()
-	live := make([]*liveSession, 0, len(s.sessions))
-	for _, ls := range s.sessions {
-		if ls.conn == c {
+	all := s.liveSessions()
+	live := make([]*liveSession, 0, len(all))
+	for _, ls := range all {
+		if ls.connection() == c {
 			live = append(live, ls)
 		}
 	}
-	s.mu.Unlock()
 	sort.Slice(live, func(i, j int) bool { return live[i].started.After(live[j].started) })
 	if len(live) > limit {
 		live = live[:limit]
@@ -885,11 +1050,9 @@ func nilIfEmpty(text string) any {
 func unixSeconds(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
 func (s *Server) activeList(c *conn) map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	items := []any{}
-	for _, ls := range s.sessions {
-		if ls.conn != c {
+	for _, ls := range s.liveSessions() {
+		if ls.connection() != c {
 			continue
 		}
 		items = append(items, map[string]any{
@@ -904,14 +1067,14 @@ func (s *Server) activeList(c *conn) map[string]any {
 // upstream's busy path does. submission_id belongs to the canonical wire:
 // upstream's legacy contract refuses it as an unknown key with 4000, and the
 // TUI then retries without it.
-func (s *Server) submit(params map[string]any) (any, *rpcError) {
+func (s *Server) submit(c *conn, params map[string]any) (any, *rpcError) {
 	if _, ok := params["submission_id"]; ok {
 		return nil, &rpcError{Code: codeInvalidParams, Message: "invalid params for prompt.submit: submission_id: Extra inputs are not permitted" +
 			" — the client and the Hermes backend are out of sync (different versions); run `hermes update` and restart both",
 			Data: map[string]any{"reason": reasonInvalidParams}}
 	}
 	sid, _ := params["session_id"].(string)
-	ls, rerr := s.session(sid)
+	ls, rerr := s.ownedSession(c, sid)
 	if rerr != nil {
 		return nil, rerr
 	}

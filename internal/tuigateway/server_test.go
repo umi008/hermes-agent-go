@@ -42,6 +42,7 @@ type harness struct {
 	srv    *Server
 	conn   *websocket.Conn
 	nextID int
+	url    string
 	ended  chan string
 	// events holds frames read while waiting for something else.
 	backlog []map[string]any
@@ -49,14 +50,25 @@ type harness struct {
 
 func newHarness(t *testing.T, turn func(ctx context.Context, s *fakeSession, input string) (string, error)) *harness {
 	t.Helper()
+	return newHarnessWith(t, turn, nil)
+}
+
+// newHarnessWith is newHarness plus a hook to adjust the options before the
+// server starts, for tests that need a shorter grace or a resume factory.
+func newHarnessWith(t *testing.T, turn func(ctx context.Context, s *fakeSession, input string) (string, error), tune func(*Options)) *harness {
+	t.Helper()
 	h := &harness{t: t, ended: make(chan string, 4)}
-	srv, err := New(Options{
+	opts := Options{
 		Token: testToken,
 		Info:  Info{Model: "tiny", Provider: "custom", Cwd: "/work", Version: "1.2.3"},
 		NewSession: func(_ context.Context, _ string, emit func(agent.Event)) Session {
 			return &fakeSession{id: "20261024_080000_abcdef", emit: emit, turn: turn, ended: h.ended}
 		},
-	})
+	}
+	if tune != nil {
+		tune(&opts)
+	}
+	srv, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +86,22 @@ func newHarness(t *testing.T, turn func(ctx context.Context, s *fakeSession, inp
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
 	h.conn = conn
+	h.url = url
 	return h
+}
+
+// newPeer dials a second connection to the same server, standing in for a
+// client that reconnected.
+func newPeer(t *testing.T, h *harness) *harness {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, h.url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	return &harness{t: t, srv: h.srv, conn: conn, ended: h.ended, url: h.url}
 }
 
 func (h *harness) read() map[string]any {
@@ -463,14 +490,18 @@ func TestClarifyResponseWithoutAnswersCancels(t *testing.T) {
 	}
 }
 
-func TestDisconnectEndsSessionsAndPendingRequests(t *testing.T) {
+// TestDisconnectSettlesRequestsAndReapsLater pins the lifetime contract a
+// dropped websocket follows: its pending server requests are settled at once
+// (nobody can answer them), and the session is parked for the grace window
+// before it is ended, so a reconnecting client can still reach it.
+func TestDisconnectSettlesRequestsAndReapsLater(t *testing.T) {
 	var srv *Server
 	approveErr := make(chan error, 1)
-	h := newHarness(t, func(ctx context.Context, _ *fakeSession, _ string) (string, error) {
+	h := newHarnessWith(t, func(ctx context.Context, _ *fakeSession, _ string) (string, error) {
 		_, err := srv.Approve(ctx, approval.Request{Command: "x"})
 		approveErr <- err
 		return "", err
-	})
+	}, func(o *Options) { o.OrphanGrace = 80 * time.Millisecond })
 	srv = h.srv
 	h.ready()
 	sid := h.createSession()

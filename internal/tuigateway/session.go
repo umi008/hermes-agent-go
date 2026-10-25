@@ -11,16 +11,27 @@ import (
 
 // liveSession is a session bound to the connection that created it. At most
 // one turn runs at a time; inputs submitted meanwhile wait in a FIFO.
+//
+// The binding is the session's lifetime: a dropped client detaches the session
+// instead of ending it, and the orphan reaper ends it only if nobody
+// reattaches within the grace window.
 type liveSession struct {
-	srv  *Server
-	conn *conn
-	id   string
+	srv *Server
+	id  string
 	// started stamps the session for the canonical picker, which sorts live
 	// rows newest first.
 	started time.Time
 	sess    Session
 
-	mu          sync.Mutex
+	mu sync.Mutex
+	// conn is the client that drives the session, nil while it is detached.
+	// It is read and written through connection, bind and detachConn only.
+	conn *conn
+	// reap is the pending orphan-grace timer, nil when none is armed.
+	reap *time.Timer
+	// reaping marks a session the orphan reaper claimed: a resume must not bind
+	// it, or a closed session would come back to life.
+	reaping     bool
 	running     bool
 	interrupted bool
 	closed      bool
@@ -38,6 +49,115 @@ func withSession(ctx context.Context, ls *liveSession) context.Context {
 func sessionFrom(ctx context.Context) (*liveSession, bool) {
 	ls, ok := ctx.Value(sessionKey{}).(*liveSession)
 	return ls, ok
+}
+
+// connection is the client that drives the session, or nil while it is
+// detached. Callers must not hold Server.mu: a turn finishing takes ls.mu and
+// then Server.mu to start its queued input, so the reverse order would
+// deadlock.
+func (ls *liveSession) connection() *conn {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.conn
+}
+
+// bind makes c the client that drives the session, or detaches it when c is
+// nil, and cancels a pending orphan reap in the same critical section: a timer
+// that already fired must never reap a session a reconnect took back. It
+// reports whether the session accepted the binding. A session another live
+// client still drives keeps that client — a reconnect must not steal a
+// conversation from a connected client — and one the reaper claimed, or one
+// that already closed, never comes back.
+func (ls *liveSession) bind(c *conn) bool {
+	ls.mu.Lock()
+	if ls.reaping || ls.closed {
+		ls.mu.Unlock()
+		return false
+	}
+	// connLive takes Server.mu, the same order a turn uses: ls.mu, then
+	// Server.mu. A binding whose socket has not been reaped yet is still live
+	// here, so a resume that arrives before detach runs is safe to refuse.
+	if other := ls.conn; c != nil && other != nil && other != c && ls.srv.connLive(other) {
+		ls.mu.Unlock()
+		return false
+	}
+	ls.conn = c
+	ls.mu.Unlock()
+	ls.stopReap()
+	return true
+}
+
+// detachConn clears the binding when it is still c, and reports whether this
+// detach owned the session. A client that reconnected first keeps it: the
+// snapshot detach works from can predate the reattach, and clearing the
+// binding here would silence the new client and arm a reap against it.
+func (ls *liveSession) detachConn(c *conn) bool {
+	ls.mu.Lock()
+	if ls.conn != c {
+		ls.mu.Unlock()
+		return false
+	}
+	ls.conn = nil
+	ls.mu.Unlock()
+	ls.stopReap()
+	return true
+}
+
+// stopReap cancels a pending orphan reap, if any. The timer is cleared under
+// ls.mu while the reaper's claim re-checks the binding under the same lock, so
+// a timer that fires between the two still finds the session either rebound or
+// detached, never both.
+func (ls *liveSession) stopReap() {
+	ls.mu.Lock()
+	timer := ls.reap
+	ls.reap = nil
+	ls.mu.Unlock()
+	if timer != nil {
+		timer.Stop()
+	}
+}
+
+// claimReap marks the session for the orphan reaper and reports whether it may
+// end it. The detached check and the claim share one critical section with
+// bind, so a reattach that wins the race keeps the conversation.
+func (ls *liveSession) claimReap() bool {
+	ls.mu.Lock()
+	if ls.conn != nil || ls.reaping || ls.closed {
+		ls.mu.Unlock()
+		return false
+	}
+	ls.reaping = true
+	ls.mu.Unlock()
+	ls.stopReap()
+	return true
+}
+
+// scheduleReap arms the orphan grace for a session that just lost its client.
+// A timer must not outlive the server it belongs to, so the registration is
+// re-checked: Close sweeps the registered sessions and stops their timers, and
+// either this check or that sweep sees the other's work.
+func (ls *liveSession) scheduleReap(grace time.Duration) {
+	s := ls.srv
+	timer := time.AfterFunc(grace, func() { s.reapSession(ls.id) })
+	ls.mu.Lock()
+	if ls.conn != nil || ls.reaping || ls.closed {
+		// A resume or a close won the race: this timer must end nothing.
+		ls.mu.Unlock()
+		timer.Stop()
+		return
+	}
+	prior := ls.reap
+	ls.reap = timer
+	ls.mu.Unlock()
+	if prior != nil {
+		prior.Stop()
+	}
+	s.mu.Lock()
+	gone := s.closed || s.sessions[ls.id] != ls
+	s.mu.Unlock()
+	if gone {
+		ls.stopReap()
+	}
 }
 
 // start runs text now, or queues it behind the running turn. It reports
@@ -71,7 +191,9 @@ func (ls *liveSession) launch(text string) bool {
 func (ls *liveSession) turn(ctx context.Context, text string, done chan struct{}) {
 	defer ls.srv.wg.Done()
 	defer close(done)
-	ls.conn.event("message.start", ls.id, map[string]any{})
+	if c := ls.connection(); c != nil {
+		c.event("message.start", ls.id, map[string]any{})
+	}
 	reply, err := ls.sess.Run(ctx, text)
 
 	ls.mu.Lock()
@@ -85,7 +207,9 @@ func (ls *liveSession) turn(ctx context.Context, text string, done chan struct{}
 		payload["status"] = "error"
 		payload["warning"] = err.Error()
 	}
-	ls.conn.event("message.complete", ls.id, payload)
+	if c := ls.connection(); c != nil {
+		c.event("message.complete", ls.id, payload)
+	}
 
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
@@ -112,8 +236,10 @@ func (ls *liveSession) interrupt() bool {
 
 // close drops queued input, interrupts the running turn, waits for it and ends
 // the session. The turn's open requests end with it, since they wait on its
-// context.
+// context. A pending orphan reap is stopped first: the session is ending here,
+// so the timer must not fire into a closed one.
 func (ls *liveSession) close() {
+	ls.stopReap()
 	ls.mu.Lock()
 	ls.closed = true
 	ls.queue = nil
@@ -130,36 +256,42 @@ func (ls *liveSession) close() {
 	ls.sess.End(closeReason)
 }
 
-// emit maps an agent event to the TUI's session events.
+// emit maps an agent event to the TUI's session events. A detached session has
+// nobody to stream to, so its events are dropped: the reattached client reads
+// the transcript from the store instead of replaying deltas it never saw.
 func (ls *liveSession) emit(e agent.Event) {
+	c := ls.connection()
+	if c == nil {
+		return
+	}
 	switch e.Kind {
 	case agent.EventText:
-		ls.conn.event("message.delta", ls.id, map[string]any{"text": e.Text})
+		c.event("message.delta", ls.id, map[string]any{"text": e.Text})
 	case agent.EventReasoning:
-		ls.conn.event("reasoning.delta", ls.id, map[string]any{"text": e.Text})
+		c.event("reasoning.delta", ls.id, map[string]any{"text": e.Text})
 	case agent.EventToolStart:
 		if e.ToolCall != nil {
-			ls.conn.event("tool.start", ls.id, map[string]any{
+			c.event("tool.start", ls.id, map[string]any{
 				"tool_id": e.ToolCall.ID, "name": e.ToolCall.Name, "args_text": string(e.ToolCall.Arguments),
 			})
 		}
 	case agent.EventToolResult:
 		if e.ToolCall != nil {
-			ls.conn.event("tool.complete", ls.id, map[string]any{
+			c.event("tool.complete", ls.id, map[string]any{
 				"tool_id": e.ToolCall.ID, "name": e.ToolCall.Name, "result_text": e.Text,
 			})
 		}
 	case agent.EventRetry:
-		ls.conn.event("status.update", ls.id, map[string]any{
+		c.event("status.update", ls.id, map[string]any{
 			"kind": "status", "text": fmt.Sprintf("retrying (attempt %d): %v", e.Attempt, e.Err),
 		})
 	case agent.EventFallback:
-		ls.conn.event("status.update", ls.id, map[string]any{"kind": "warn", "text": e.Text})
+		c.event("status.update", ls.id, map[string]any{"kind": "warn", "text": e.Text})
 	case agent.EventCompress:
 		text := "context compacted"
 		if e.Err != nil {
 			text = "context compaction failed: " + e.Err.Error()
 		}
-		ls.conn.event("status.update", ls.id, map[string]any{"kind": "compacting", "text": text})
+		c.event("status.update", ls.id, map[string]any{"kind": "compacting", "text": text})
 	}
 }
