@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -365,5 +366,38 @@ func TestPatchGuards(t *testing.T) {
 		"path": "g.go", "old_string": "func a() {\n\treturn 1 + 3\n}", "new_string": "func a() {\n\treturn 9\n}",
 	}); !strings.Contains(e, "Found 2 matches") {
 		t.Errorf("ambiguous error = %q", e)
+	}
+}
+
+// TestSearchFilesRespectsGitignore pins the ignore contract: inside a worktree
+// the search skips what git ignores, for both targets, and paging counts only
+// what survived. Upstream asks git rather than reimplementing the rules.
+func TestSearchFilesRespectsGitignore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	r, dir := setup(t)
+	put(t, filepath.Join(dir, ".gitignore"), "ignored.txt\nbuild/\n")
+	put(t, filepath.Join(dir, "keep.go"), "package keep\n// needle\n")
+	put(t, filepath.Join(dir, "ignored.txt"), "needle\n")
+	put(t, filepath.Join(dir, "build", "x.go"), "package x\n// needle\n")
+	// Untracked files are enough: the ignore verdict does not need a commit.
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v (%s)", err, out)
+	}
+
+	obj, e := call(t, r, "search_files", map[string]any{"pattern": "needle"})
+	if e != "" {
+		t.Fatalf("error = %q", e)
+	}
+	if obj["total_count"] != float64(1) {
+		t.Fatalf("matches = %v", obj)
+	}
+	if first := obj["matches"].([]any)[0].(map[string]any); first["path"] != "keep.go" {
+		t.Fatalf("match = %v", first)
+	}
+	obj, _ = call(t, r, "search_files", map[string]any{"pattern": "*.go", "target": "files"})
+	if fmt.Sprint(obj["files"]) != "[keep.go]" {
+		t.Fatalf("files = %v", obj["files"])
 	}
 }
