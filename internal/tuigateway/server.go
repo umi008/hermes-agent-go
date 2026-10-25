@@ -395,11 +395,11 @@ func (s *Server) dispatch(c *conn, method string, raw json.RawMessage) (any, *rp
 	case "wake.start":
 		return map[string]any{"started": false, "reason": "unsupported"}, nil
 	case "commands.catalog":
-		return map[string]any{
-			"pairs": []any{}, "sub": map[string]any{}, "canon": map[string]any{}, "commands": map[string]any{},
-			"categories": []any{}, "skills": map[string]any{}, "skill_count": 0, "warning": "",
-			"plugin_discovery_error": "", "plugin_commands": map[string]any{},
-		}, nil
+		return s.commandsCatalog(), nil
+	case "complete.slash":
+		return s.completeSlash(params)
+	case "slash.exec":
+		return s.slashExec(c, params)
 	case "session.control.read":
 		return map[string]any{"control": map[string]any{
 			"goal": nil, "loop": nil, "heartbeat": nil, "revision": "", "updated_at": 0,
