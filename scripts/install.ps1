@@ -79,17 +79,33 @@
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
     }
 
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $onPath = ($userPath -split ';') -contains $installDir
-    if ($onPath) {
-        # Already there.
-    } elseif ($env:HERMES_GO_NO_MODIFY_PATH -eq '1') {
-        Say "$installDir is not on your PATH; add it to use hermes-go from any shell"
-    } else {
-        $newPath = if ($userPath) { "$userPath;$installDir" } else { $installDir }
-        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
-        $env:Path = "$env:Path;$installDir"
-        Say "added $installDir to your user PATH; open a new terminal to pick it up"
+    # Read and write the raw registry value, so %VAR% entries in the user
+    # PATH stay unexpanded. HERMES_GO_ENV_KEY (a key under HKCU) exists for
+    # tests; it defaults to the real Environment key.
+    $envKey = $env:HERMES_GO_ENV_KEY
+    if (-not $envKey) { $envKey = 'Environment' }
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($envKey)
+    try {
+        $userPath = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $entries = $userPath -split ';' | ForEach-Object { $_.TrimEnd('\') }
+        if ($entries -contains $installDir.TrimEnd('\')) {
+            # Already there.
+        } elseif ($env:HERMES_GO_NO_MODIFY_PATH -eq '1') {
+            Say "$installDir is not on your PATH; add it to use hermes-go from any shell"
+        } else {
+            $newPath = if ($userPath) { "$($userPath.TrimEnd(';'));$installDir" } else { $installDir }
+            $key.SetValue('Path', $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            if ($envKey -eq 'Environment') {
+                # Setting and clearing a variable broadcasts WM_SETTINGCHANGE,
+                # so new terminals see the PATH without a sign-out.
+                [Environment]::SetEnvironmentVariable('HERMES_GO_INSTALL', '1', 'User')
+                [Environment]::SetEnvironmentVariable('HERMES_GO_INSTALL', $null, 'User')
+            }
+            $env:Path = "$env:Path;$installDir"
+            Say "added $installDir to your user PATH; open a new terminal to pick it up"
+        }
+    } finally {
+        $key.Close()
     }
     Say 'next: set a provider key (e.g. OPENROUTER_API_KEY) and run: hermes-go doctor'
 }

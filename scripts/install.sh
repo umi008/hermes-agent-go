@@ -62,7 +62,9 @@ case "$version" in v*) ;; *) version="v$version" ;; esac
 
 archive="hermes-go_${version#v}_${os}_${arch}.tar.gz"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT INT TERM
+staged="$INSTALL_DIR/.hermes-go.new"
+trap 'rm -rf "$tmp"; rm -f "$staged"' EXIT
+trap 'exit 1' INT TERM
 
 say "downloading $archive ($version)"
 fetch "$DOWNLOAD_URL/$version/$archive" "$tmp/$archive" || die "download failed: $DOWNLOAD_URL/$version/$archive"
@@ -76,9 +78,9 @@ got="$(sha256 "$tmp/$archive")"
 tar -xzf "$tmp/$archive" -C "$tmp" hermes-go || die "archive has no hermes-go binary"
 mkdir -p "$INSTALL_DIR"
 # Copy then rename, so a running hermes-go is never half-overwritten.
-cp "$tmp/hermes-go" "$INSTALL_DIR/.hermes-go.new"
-chmod 755 "$INSTALL_DIR/.hermes-go.new"
-mv -f "$INSTALL_DIR/.hermes-go.new" "$INSTALL_DIR/hermes-go"
+cp "$tmp/hermes-go" "$staged"
+chmod 755 "$staged"
+mv -f "$staged" "$INSTALL_DIR/hermes-go"
 say "installed $("$INSTALL_DIR/hermes-go" version) to $INSTALL_DIR/hermes-go"
 
 case ":$PATH:" in
