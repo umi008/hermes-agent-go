@@ -43,7 +43,7 @@ Assumptions:
 | T7b gate ladder, breaker, menu | S7 | inline | done | 9eb6b54, dc28f94 |
 | T7c config and runtime wiring | S7 | inline | done | fc88d5d |
 | T8 TUI canonical wire | S8 | inline | done | be16897, 600a8c0, ac26705, 9bb4a88 |
-| T9 Retry-After, max_tokens continuation | S9 | inline | done | see L15 |
+| T9 Retry-After, max_tokens continuation | S9 | inline | done | c2b4d0d, ad69f48 |
 | T10 patch strategies, .gitignore | S10 | inline | planned | |
 
 ## Log
