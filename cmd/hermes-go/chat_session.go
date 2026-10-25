@@ -52,6 +52,9 @@ type sessionSpec struct {
 	history []llm.Message
 	// instructions is an ephemeral system prompt tier for this session.
 	instructions string
+	// model pins this session's model on the runtime's provider, as a
+	// session model lock does upstream; empty serves the runtime's model.
+	model string
 }
 
 // newSession opens a conversation: a fresh id, a recorder and an agent with a
@@ -77,12 +80,16 @@ func (rt *chatRuntime) openSession(ctx context.Context, spec sessionSpec) *chatS
 	started := rt.env.Now()
 	s := &chatSession{rt: rt, source: source, out: out, started: started, observe: spec.observe,
 		seed: append([]llm.Message(nil), spec.history...)}
+	model := rt.ep.Model
+	if spec.model != "" {
+		model = spec.model
+	}
 	id := spec.id
 	if id == "" {
 		id = state.NewSessionID(started)
 	}
 	s.rec = newRecorder(ctx, rt.store, state.Session{
-		ID: id, Source: source, Model: rt.ep.Model, Cwd: rt.cwd,
+		ID: id, Source: source, Model: model, Cwd: rt.cwd,
 	}, rt.logger)
 	if s.rec != nil {
 		s.id = s.rec.id
@@ -103,7 +110,7 @@ func (rt *chatRuntime) openSession(ctx context.Context, spec sessionSpec) *chatS
 		HomeDir:      rt.hermes,
 		Cwd:          rt.cwd,
 		MaxFileChars: maxChars,
-		Model:        rt.ep.Model,
+		Model:        model,
 		Provider:     rt.ep.Provider,
 		Platform:     source,
 		Now:          started,
@@ -117,7 +124,7 @@ func (rt *chatRuntime) openSession(ctx context.Context, spec sessionSpec) *chatS
 		Client:     rt.client,
 		Compressor: newCompressor(rt.cfg, rt.lookup, rt.primaryRoute(), rt.env.Now, rt.logger),
 		Tools:      rt.toolExecutor(s),
-		Model:      rt.ep.Model,
+		Model:      model,
 		Provider:   rt.ep.Provider,
 		BaseURL:    rt.ep.BaseURL,
 		Fallbacks:  rt.fallbacks,

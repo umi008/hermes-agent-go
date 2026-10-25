@@ -166,7 +166,8 @@ type runtimeBackend struct{ rt *chatRuntime }
 func (b runtimeBackend) Model() string { return b.rt.ep.Model }
 
 func (b runtimeBackend) NewSession(ctx context.Context, o apiserver.SessionOptions) apiserver.Session {
-	spec := sessionSpec{source: o.Source, out: o.Out, id: o.ID, history: o.History, instructions: o.Instructions}
+	spec := sessionSpec{source: o.Source, out: o.Out, id: o.ID, history: o.History, instructions: o.Instructions,
+		model: o.Model}
 	if o.Resume && len(spec.history) == 0 {
 		spec.history = storedHistory(ctx, b.rt.store, o.ID, b.rt.logger)
 	}

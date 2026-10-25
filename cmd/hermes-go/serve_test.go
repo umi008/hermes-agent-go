@@ -762,3 +762,100 @@ func TestAPISessionsReadTheRuntimeStore(t *testing.T) {
 		t.Fatalf("messages = %s", msgs)
 	}
 }
+
+// TestAPISessionChatTurn checks /api/sessions/{id}/chat runs a real turn over
+// the stored session: the transcript seeds it, the reply and the served
+// runtime come back, and the next turn replays the conversation.
+func TestAPISessionChatTurn(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	created := apiDo(t, srv, "POST", "/api/sessions", "", `{"id":"s-chat"}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create session = %d", created.StatusCode)
+	}
+	resp := apiDo(t, srv, "POST", "/api/sessions/s-chat/chat", "", `{"message":"ping"}`)
+	body, _ := io.ReadAll(resp.Body)
+	want := `{"object":"hermes.session.chat.completion","status":"completed","session_id":"s-chat",` +
+		`"message":{"role":"assistant","content":"pong"},` +
+		`"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"cache_read_tokens":0,"cache_write_tokens":0},` +
+		`"runtime":{"provider":"custom","model":"tiny","route_source":"global"}}`
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != want {
+		t.Fatalf("chat = %d %s", resp.StatusCode, body)
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, "s-chat"); got != "ping|pong" {
+		t.Fatalf("stored turn = %q", got)
+	}
+
+	// The next turn replays the stored conversation and appends to it.
+	second := apiDo(t, srv, "POST", "/api/sessions/s-chat/chat", "", `{"message":"again"}`)
+	if _, err := io.Copy(io.Discard, second.Body); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	request := bodies[len(bodies)-1]
+	mu.Unlock()
+	for _, want := range []string{`"ping"`, `"pong"`, `"again"`} {
+		if !strings.Contains(request, want) {
+			t.Errorf("second turn lacks %s: %s", want, request)
+		}
+	}
+	if got := activeContents(t, st, "s-chat"); got != "ping|pong|again|pong" {
+		t.Errorf("stored turns = %q", got)
+	}
+}
+
+// TestAPISessionChatModelLock checks a locked session model reaches the
+// provider on this turn and on the next one, which names no model.
+func TestAPISessionChatModelLock(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	created := apiDo(t, srv, "POST", "/api/sessions", "", `{"id":"s-lock"}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create session = %d", created.StatusCode)
+	}
+	locked := apiDo(t, srv, "POST", "/api/sessions/s-lock/chat", "",
+		`{"message":"hi","require_model_lock":true,"model":"locked-model"}`)
+	body, _ := io.ReadAll(locked.Body)
+	if locked.StatusCode != http.StatusOK ||
+		!strings.Contains(string(body), `"model":"locked-model"`) ||
+		!strings.Contains(string(body), `"model_lock":"confirmed"`) {
+		t.Fatalf("locked chat = %d %s", locked.StatusCode, body)
+	}
+	plain := apiDo(t, srv, "POST", "/api/sessions/s-lock/chat", "", `{"message":"again"}`)
+	plainBody, _ := io.ReadAll(plain.Body)
+	if plain.StatusCode != http.StatusOK || !strings.Contains(string(plainBody), `"route_source":"session_model_lock"`) {
+		t.Fatalf("reused lock = %d %s", plain.StatusCode, plainBody)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for i, request := range bodies {
+		if !strings.Contains(request, `"model":"locked-model"`) {
+			t.Errorf("turn %d did not use the locked model: %s", i+1, request)
+		}
+	}
+}
