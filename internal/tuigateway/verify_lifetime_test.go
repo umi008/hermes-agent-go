@@ -150,7 +150,9 @@ func TestDropThenReattachSettlesTheTurn(t *testing.T) {
 			t.Fatalf("round %d: reattach = %v, want %s", round, res["session_id"], sid)
 		}
 		select {
-		case <-approveErr:
+		case aerr := <-approveErr:
+			// Either outcome settles the turn; the drop may deny it.
+			t.Logf("round %d: approval settled: %v", round, aerr)
 		case <-time.After(3 * time.Second):
 			t.Fatalf("round %d: the turn never settled after the drop and reattach", round)
 		}

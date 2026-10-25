@@ -24,7 +24,7 @@ type slashCommand struct {
 func slashCommands() []slashCommand {
 	return []slashCommand{
 		{name: "help", aliases: []string{"?"}, help: "Show available commands", category: slashCategorySession,
-			run: func(s *Server, _ *liveSession, _ string) string { return slashHelpText() }},
+			run: func(_ *Server, _ *liveSession, _ string) string { return slashHelpText() }},
 		{name: "model", help: "Show the current model", category: slashCategorySession,
 			run: func(s *Server, _ *liveSession, _ string) string {
 				return fmt.Sprintf("model: %s (provider %s)", s.o.Info.Model, s.o.Info.Provider)

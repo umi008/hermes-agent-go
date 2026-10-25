@@ -155,7 +155,7 @@ func rebindWithOrphanedRequest(t *testing.T) (bool, string) {
 	var url string
 	srv, url = lifetimeServer(t, 10*time.Second, func(id string) *lifetimeSession {
 		return &lifetimeSession{id: id, ended: func(string) {},
-			turn: func(ctx context.Context, in string) (string, error) {
+			turn: func(ctx context.Context, _ string) (string, error) {
 				if _, err := srv.Approve(ctx, lifetimeApproval()); err != nil {
 					return "", err
 				}
@@ -284,7 +284,7 @@ func TestSecondConnectionCannotAnswerApproval(t *testing.T) {
 	var url string
 	srv, url = lifetimeServer(t, time.Second, func(id string) *lifetimeSession {
 		return &lifetimeSession{id: id, ended: func(string) {},
-			turn: func(ctx context.Context, in string) (string, error) {
+			turn: func(ctx context.Context, _ string) (string, error) {
 				ch, err := srv.Approve(ctx, lifetimeApproval())
 				got <- int(ch)
 				if err != nil {
