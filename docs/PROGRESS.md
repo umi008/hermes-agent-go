@@ -165,7 +165,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V7 remaining tasks, in order: T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
+- V7 is complete: T1-T10 landed. Next vertical is unplanned; the gaps named in this file are the candidates.
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
 - Merge `dev` into `main` and tag a release when the owner approves.
 
