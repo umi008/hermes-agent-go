@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -276,6 +277,49 @@ type NewAPISession struct {
 	ID, Source, Model, SystemPrompt, Title string
 }
 
+// ModelLock is the Browser model lock a session chat persists under
+// model_config.browser_model_lock, as upstream update_session_runtime_lock.
+type ModelLock struct {
+	Provider    string          `json:"provider"`
+	Model       string          `json:"model"`
+	ModelOpts   json.RawMessage `json:"model_options"`
+	RouteSource string          `json:"route_source"`
+	Confirmed   bool            `json:"confirmed"`
+	UpdatedAt   float64         `json:"updated_at"`
+}
+
+// SetModelLock persists a confirmed runtime lock: the lineage markers in
+// model_config survive, the lock object is replaced wholesale, and a locked
+// model becomes the row's model (COALESCE, as upstream). An unknown session
+// is ErrNotFound.
+func (s *Store) SetModelLock(ctx context.Context, sessionID string, lock ModelLock) error {
+	if s.readOnly {
+		return ErrReadOnly
+	}
+	if len(lock.ModelOpts) == 0 {
+		lock.ModelOpts = json.RawMessage(`{}`)
+	}
+	lock.UpdatedAt = s.timestamp()
+	patch, err := json.Marshal(lock)
+	if err != nil {
+		return fmt.Errorf("state: model lock: %w", err)
+	}
+	var model any
+	if lock.Model != "" {
+		model = lock.Model
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE sessions SET
+		model_config = json_set(COALESCE(NULLIF(model_config, ''), '{}'), '$.browser_model_lock', json(?)),
+		model = COALESCE(?, model) WHERE id = ?`, string(patch), model, sessionID)
+	if err != nil {
+		return fmt.Errorf("state: model lock: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // CreateAPISession inserts the row atomically with its title: an existing
 // id is ErrSessionExists and a taken title a *TitleError, neither writing.
 func (s *Store) CreateAPISession(ctx context.Context, n NewAPISession) error {
@@ -395,8 +439,21 @@ func (s *Store) MessagePage(ctx context.Context, sessionID string, limit, offset
 	if latest {
 		dir = "DESC"
 	}
+	return s.clientMessages(ctx, sessionID, " ORDER BY id "+dir+" LIMIT ? OFFSET ?", limit, offset)
+}
+
+// ActiveMessages is upstream get_messages_as_conversation's row read: every
+// active row of the session, oldest first and unbounded. A session chat seeds
+// its turn with it.
+func (s *Store) ActiveMessages(ctx context.Context, sessionID string) ([]ClientMessage, error) {
+	return s.clientMessages(ctx, sessionID, " ORDER BY id")
+}
+
+// clientMessages reads the session's active rows with the given ordering and
+// paging, reversing a descending page so callers always see oldest first.
+func (s *Store) clientMessages(ctx context.Context, sessionID, tail string, args ...any) ([]ClientMessage, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+messageCols+`, COALESCE(reasoning_content,''), COALESCE(display_kind,'')
-		FROM messages WHERE session_id = ? AND active = 1 ORDER BY id `+dir+" LIMIT ? OFFSET ?", sessionID, limit, offset)
+		FROM messages WHERE session_id = ? AND active = 1`+tail, append([]any{sessionID}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("state: messages: %w", err)
 	}
@@ -413,7 +470,7 @@ func (s *Store) MessagePage(ctx context.Context, sessionID string, limit, offset
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("state: messages: %w", err)
 	}
-	if latest {
+	if len(tail) > 0 && strings.Contains(tail, "DESC") {
 		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 			out[i], out[j] = out[j], out[i]
 		}

@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -263,5 +264,91 @@ func TestForkSessionAndLineageTitle(t *testing.T) {
 	got, _ := s.ListSessions(ctx, ListOptions{Limit: 50})
 	if !slices.Contains(ids(got), "f1") {
 		t.Fatalf("a fork must stay listed: %v", ids(got))
+	}
+}
+
+// TestStoreActiveMessages pins the conversation read a session chat seeds
+// with: every active row, oldest first, and nothing else.
+func TestStoreActiveMessages(t *testing.T) {
+	s, ctx := newCatalog(t)
+	_ = s.CreateSession(ctx, Session{ID: "a", Source: "api_server"})
+	if _, err := s.AppendMessage(ctx, "a", Message{Role: "user", Content: "q1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendMessage(ctx, "a", Message{Role: "assistant", Content: "a1",
+		ToolCalls: `[{"id":"c1"}]`, Reasoning: "why"}); err != nil {
+		t.Fatal(err)
+	}
+	// An archived row is part of the compacted past, not of the live transcript.
+	if _, err := s.db.Exec("UPDATE messages SET active = 0 WHERE content = 'a1'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendMessage(ctx, "a", Message{Role: "tool", Content: "out", ToolCallID: "c1", ToolName: "shell"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.ActiveMessages(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Content != "q1" || rows[1].Content != "out" || rows[1].ToolName != "shell" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows, err := s.ActiveMessages(ctx, "nope"); err != nil || len(rows) != 0 {
+		t.Fatalf("unknown session = %+v, %v", rows, err)
+	}
+}
+
+// TestStoreSetModelLock pins the persisted Browser model lock: the row keeps
+// its lineage marker, gains the lock object, and adopts the locked model.
+func TestStoreSetModelLock(t *testing.T) {
+	s, ctx := newCatalog(t)
+	if err := s.CreateAPISession(ctx, NewAPISession{ID: "a", Source: "api_server", Title: "Plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("UPDATE sessions SET model_config = ? WHERE id = ?",
+		`{"_branched_from":"src"}`, "a"); err != nil {
+		t.Fatal(err)
+	}
+	lock := ModelLock{Model: "sonnet-4", Provider: "anthropic", RouteSource: "raw_request", Confirmed: true}
+	if err := s.SetModelLock(ctx, "a", lock); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.SessionRecord(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Model != "sonnet-4" {
+		t.Fatalf("locked model = %q", rec.Model)
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(rec.ModelConfig), &cfg); err != nil {
+		t.Fatalf("model_config = %s: %v", rec.ModelConfig, err)
+	}
+	if string(cfg["_branched_from"]) != `"src"` {
+		t.Fatalf("lineage marker lost: %s", rec.ModelConfig)
+	}
+	var stored ModelLock
+	if err := json.Unmarshal(cfg["browser_model_lock"], &stored); err != nil {
+		t.Fatalf("lock = %v", err)
+	}
+	if stored.Model != "sonnet-4" || stored.Provider != "anthropic" || stored.RouteSource != "raw_request" || !stored.Confirmed {
+		t.Fatalf("lock = %+v", stored)
+	}
+	// A prior lock is replaced wholesale, not merged field by field.
+	if err := s.SetModelLock(ctx, "a", ModelLock{Model: "haiku", Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = s.SessionRecord(ctx, "a")
+	if err := json.Unmarshal([]byte(rec.ModelConfig), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(cfg["browser_model_lock"], &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Model != "haiku" || stored.Provider != "" || rec.Model != "haiku" {
+		t.Fatalf("replaced lock = %+v, row model %q", stored, rec.Model)
+	}
+	if err := s.SetModelLock(ctx, "nope", lock); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing session: %v", err)
 	}
 }
