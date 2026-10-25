@@ -102,12 +102,14 @@ compatibility with the Hermes home where practical.
   - T6a `/v1/responses`: create, get and delete with a SQLite LRU store, `previous_response_id` and `conversation` chains that continue one session, upstream's streaming events, and `max_concurrent_runs` (10) on chat completions and responses.
   - T6b `/v1/runs`: background runs with pollable status, an SSE event stream with replay, stop, and session resume by `session_id`.
   - T6c `/api/sessions`: list, create, get, patch (title and sidebar flags), delete, paged messages and fork over the runtime's state.db.
+  - T6d `/api/sessions/{id}/chat`, `/chat/stream`: one turn over a stored session, seeded with its active transcript, answered as `hermes.session.chat.completion` or as upstream's typed SSE events (`run.started`, `message.started`, `assistant.delta`, `tool.started`/`tool.failed`, `assistant.completed`, `run.<status>`, `done`). The streamed turn is also a pollable run. A Browser model lock is persisted under `model_config.browser_model_lock` and replayed by later turns.
 
 ## Known V7 gaps (deliberate, tracked)
 
 - `/v1/responses`: no reasoning items, idempotency keys, `X-Hermes-Session-Key` or multimodal input; failures report a generic message; system and developer history entries are dropped; truncation keeps no compaction summary; JSON is compact, not Python-spaced; the session source is `api`.
 - `/v1/runs`: no Idempotency-Key, approval, clarify, steer or resolve-unknown endpoints; no `message.interim`, reasoning or subagent events; tool previews show only the primary argument and results are not redacted; failures say `agent run failed`.
-- `/api/sessions`: no session chat endpoints, model lock, compression lineage (tip projection, ancestor messages, lineage-wide flags), retired-id fence or Bot Chat rules; delete leaves session files alone.
+- `/api/sessions`: no compression lineage (tip projection, ancestor messages, lineage-wide flags), retired-id fence or Bot Chat rules; delete leaves session files alone.
+- Session chat: no provider switching (a locked provider is refused with `model_lock_unavailable`), no `model_routes` aliases, `model_options`/reasoning, `gateway_session_key`, `turn_author`, per-turn `requested` provenance beyond the body, or Bot Chat/live-owner handoff. `messages` on `run.completed` carries the port's replayable transcript shape, not the client row projection, and a failed turn reports `agent run failed` as its `error` event.
 
 ## Known V6 gaps (deliberate, tracked)
 

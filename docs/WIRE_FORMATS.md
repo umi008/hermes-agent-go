@@ -211,12 +211,19 @@ enabled_toolsets, workdir
 
 ## 8. OpenAI-compatible API server
 
-- **Routes (implemented):** `GET /v1/models` and `POST /v1/chat/completions`, streamed and not. Everything else returns the OpenAI 404 envelope.
+- **Routes (implemented):** `GET /v1/models`, `POST /v1/chat/completions`, `POST/GET/DELETE /v1/responses`, `POST /v1/runs` with `GET /v1/runs/{id}`, `GET /v1/runs/{id}/events`, `POST /v1/runs/{id}/stop`, the `/api/sessions` resource routes and `POST /api/sessions/{id}/chat[/stream]`. Everything else returns the OpenAI 404 envelope.
 - **Auth:** `Authorization: Bearer <token>`. The token is `api_server.api_key` from `config.yaml`, else `HERMES_API_KEY` from `.env` or the environment. A non-loopback address refuses to start without one.
 - **Bodies:** OpenAI request fields (`model`, `messages`, `stream`, `temperature`, …); fields the port does not implement are accepted and ignored, as upstream's routes tolerate loose clients.
 - **Responses:** the OpenAI envelope, and errors as `{"error":{"message","type","code"}}` with 400, 401 or 500.
 - **Streaming:** `text/event-stream`, one `data: {...}` chunk per delta with `choices[0].delta.content`, a final chunk carrying `finish_reason`, then `data: [DONE]`. As upstream (`gateway/platforms/api_server_openai_routes.py`).
-- **Sessions:** one per request. The response carries `X-Hermes-Session-Id`, so a client can correlate the request with the stored session; there is no resume path yet.
+- **Sessions:** one per request for the OpenAI routes. The response carries `X-Hermes-Session-Id`, so a client can correlate the request with the stored session.
+- **Native session chat** (`POST /api/sessions/{id}/chat`), as `gateway/platforms/api_server.py`:
+  - **Body:** `message` (or its `input` alias) as a string or typed-part array, optional `system_message`/`instructions`, `model`/`provider`, `model_options` and `require_model_lock`.
+  - **Response:** `{"object":"hermes.session.chat.completion","status","session_id","message":{"role","content"},"usage","runtime"}`, where `status` is `completed`, `incomplete` (unfinished turn), `failed` or `cancelled`, `usage` is the agent's token block and `runtime` is `{provider, model, route_source}` plus `requested` and `model_lock` when they apply.
+  - **Errors:** `missing_message` and `invalid_system_message` (400), `session_not_found` (404), `missing_model` (400) and `model_lock_unavailable` (409) for a lock this port cannot route, `model_lock_persistence_failed` (500).
+  - **Model lock:** a confirmed lock is written to `sessions.model_config` as `browser_model_lock` and the row adopts that model; a later turn naming no model replays it with `route_source: session_model_lock`.
+  - **Streaming** (`POST /api/sessions/{id}/chat/stream`): `text/event-stream` frames `event: <name>` plus one JSON `data:` line, every payload stamped `session_id`, `run_id`, `seq` (from 1) and `ts`. Events in order: `run.started` (user message and runtime), `message.started`, any `assistant.delta`, `tool.started`/`tool.completed`/`tool.failed`, `assistant.completed`, `run.completed`/`run.failed`/`run.cancelled` with `messages`, `usage` and `runtime`, then `done`. A `: keepalive` comment arrives every 10 s; a failure after the stream opened sends `error` before `done`.
+  - **Run registry:** a streamed turn is pollable as `GET /v1/runs/{id}` (status `queued`, `running`, then terminal) and `POST /v1/runs/{id}/stop` cancels it; its live events stay on the chat response only.
 
 ## 9. Other files (out of scope until needed)
 

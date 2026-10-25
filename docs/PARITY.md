@@ -104,7 +104,8 @@ Update the Status column as verticals land. Upstream paths are relative to
 | `/v1/runs` (start, status, events with replay, stop) | done | `gateway/platforms/api_server_runs.py` |
 | `/v1/runs` approval, clarify, steer, resolve-unknown, Idempotency-Key | later | `gateway/platforms/api_server_runs.py` |
 | `/api/sessions` list, create, get, patch, delete, messages, fork | done | `gateway/platforms/api_server.py` |
-| `/api/sessions/{id}/chat`, `/chat/stream`, model lock, compression lineage | later | `gateway/platforms/api_server.py` |
+| `/api/sessions/{id}/chat`, `/chat/stream`, model lock | done (one turn over a stored session, synchronous and SSE, with the persisted Browser model lock; no provider switching) | `gateway/platforms/api_server.py` |
+| Compression lineage (tip projection, ancestor messages, lineage-wide flags) | later | `hermes_state_compression.py` |
 | Desktop app, dashboard web UI | out | `apps/desktop/`, `web/` |
 | ACP | out | — |
 
