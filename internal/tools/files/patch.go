@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/umi008/hermes-agent-go/internal/tools"
 )
@@ -18,7 +19,7 @@ func (f *Files) patchTool() tools.Tool {
 		Name:    "patch",
 		Toolset: Toolset,
 		Description: "Targeted find-and-replace edits in files. Use this instead of sed/awk in terminal. " +
-			"Uses fuzzy matching (exact, then line-trimmed, whitespace-normalized, and indentation-flexible) so minor whitespace/indentation differences won't break it. " +
+			"Uses fuzzy matching (exact, then line-trimmed, whitespace-normalized, indentation-flexible, escaped-whitespace, and unicode-normalized) so minor whitespace/indentation/escaping differences won't break it. " +
 			"Returns a unified diff. Finds a unique string and replaces it.",
 		Parameters: schema(`{"type":"object","properties":{` +
 			`"path":{"type":"string","description":"File path to edit."},` +
@@ -116,44 +117,191 @@ var lineNormalizers = []struct {
 	{"indentation_flexible", func(s string) string { return strings.TrimLeftFunc(s, unicode.IsSpace) }},
 }
 
-// findMatches returns non-overlapping byte spans of needle in text.
+// findMatches returns non-overlapping byte spans of needle in text, and the
+// name of the strategy that found them, in upstream's strategy order.
 func findMatches(text, needle string) ([][2]int, string) {
-	if n := strings.Count(text, needle); n > 0 {
-		spans := make([][2]int, 0, n)
-		for off := 0; ; {
-			i := strings.Index(text[off:], needle)
-			if i < 0 {
-				return spans, "exact"
-			}
-			spans = append(spans, [2]int{off + i, off + i + len(needle)})
-			off += i + len(needle)
-		}
+	// An empty needle is not a patch: Go's strings.Index would answer 0 forever,
+	// so this refuses instead of spinning. Upstream's re.finditer would answer
+	// every position, which no caller can use.
+	if needle == "" {
+		return nil, ""
 	}
-	lines, starts := splitWithOffsets(text)
+	if spans := exactMatches(text, needle); len(spans) > 0 {
+		return spans, "exact"
+	}
 	want := strings.Split(strings.TrimSuffix(needle, "\n"), "\n")
 	for _, s := range lineNormalizers {
-		norm := make([]string, len(want))
-		for i, w := range want {
-			norm[i] = s.norm(w)
-		}
-		var spans [][2]int
-		for i := 0; i+len(want) <= len(lines); {
-			if windowMatches(lines[i:i+len(want)], norm, s.norm) {
-				end := starts[i+len(want)-1] + len(lines[i+len(want)-1])
-				if strings.HasSuffix(needle, "\n") && end < len(text) {
-					end++ // the needle's own line break
-				}
-				spans = append(spans, [2]int{starts[i], end})
-				i += len(want)
-				continue
-			}
-			i++
-		}
-		if len(spans) > 0 {
+		if spans := lineMatches(text, needle, want, s.norm); len(spans) > 0 {
 			return spans, s.name
 		}
 	}
+	if spans := escapeNormalizedMatches(text, needle); len(spans) > 0 {
+		return spans, "escape_normalized"
+	}
+	if spans := unicodeNormalizedMatches(text, needle); len(spans) > 0 {
+		return spans, "unicode_normalized"
+	}
 	return nil, ""
+}
+
+// exactMatches returns the byte spans of every non-overlapping occurrence of
+// needle in text, as upstream's re.finditer gives for replace_all: overlapping
+// spans would corrupt the file when spliced back to back.
+func exactMatches(text, needle string) [][2]int {
+	n := strings.Count(text, needle)
+	if n == 0 {
+		return nil
+	}
+	spans := make([][2]int, 0, n)
+	for off := 0; ; {
+		i := strings.Index(text[off:], needle)
+		if i < 0 {
+			return spans
+		}
+		spans = append(spans, [2]int{off + i, off + i + len(needle)})
+		off += i + len(needle)
+	}
+}
+
+// lineMatches returns the byte spans of needle in text, comparing each line
+// under norm. want is the caller's split of the needle, so a strategy can hand
+// over an already transformed needle instead of re-deriving it.
+func lineMatches(text, needle string, want []string, norm func(string) string) [][2]int {
+	lines, starts := splitWithOffsets(text)
+	normalized := make([]string, len(want))
+	for i, w := range want {
+		normalized[i] = norm(w)
+	}
+	var spans [][2]int
+	for i := 0; i+len(want) <= len(lines); {
+		if windowMatches(lines[i:i+len(want)], normalized, norm) {
+			end := starts[i+len(want)-1] + len(lines[i+len(want)-1])
+			if strings.HasSuffix(needle, "\n") && end < len(text) {
+				end++ // the needle's own line break
+			}
+			spans = append(spans, [2]int{starts[i], end})
+			i += len(want)
+			continue
+		}
+		i++
+	}
+	return spans
+}
+
+// escapeNormalizedMatches reads a literal \n, \t or \r in the needle as the
+// control character it escapes: models sometimes emit the escape for text they
+// saw as raw whitespace. A needle with no escape sequence is left to the other
+// strategies, which match its literal form instead.
+func escapeNormalizedMatches(text, needle string) [][2]int {
+	unescaped := strings.ReplaceAll(needle, `\n`, "\n")
+	unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
+	unescaped = strings.ReplaceAll(unescaped, `\r`, "\r")
+	if unescaped == needle {
+		return nil
+	}
+	return exactMatches(text, unescaped)
+}
+
+// typographicFold maps the typographic variants a model retypes as plain ASCII
+// onto those ASCII equivalents, as upstream tools/fuzzy_match.py UNICODE_MAP.
+// The replacement is a string because a fold can expand: an em dash becomes two
+// hyphens, so a folded offset no longer equals the original one.
+var typographicFold = map[rune]string{
+	'\u201c': `"`, '\u201d': `"`, // smart double quotes
+	'\u2018': `'`, '\u2019': `'`, // smart single quotes
+	'\u2014': `--`, '\u2013': `-`, // em and en dashes
+	'\u2026': `...`, '\u00a0': ` `, // ellipsis and non-breaking space
+	'\u2212': `-`, // typographic minus
+	// The space separator family (Zs); files using these otherwise match nothing.
+	'\u2000': ` `, '\u2001': ` `, '\u2002': ` `, '\u2003': ` `,
+	'\u2004': ` `, '\u2005': ` `, '\u2006': ` `, '\u2007': ` `,
+	'\u2008': ` `, '\u2009': ` `, '\u200a': ` `, '\u202f': ` `,
+	'\u205f': ` `, '\u3000': ` `,
+}
+
+// foldTypographic applies typographicFold to every rune of s. Unmapped runes
+// are copied byte for byte so invalid UTF-8 keeps its length: the offset map
+// built in originalOffsets depends on that length matching exactly.
+func foldTypographic(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if repl, ok := typographicFold[r]; ok {
+			b.WriteString(repl)
+		} else {
+			b.WriteString(s[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
+}
+
+// unicodeNormalizedMatches retries the exact and line-trimmed matches on both
+// sides folded to ASCII. Neither side changing means no typography drift is in
+// play, and the earlier strategies already covered the identical text.
+func unicodeNormalizedMatches(text, needle string) [][2]int {
+	foldedText, foldedNeedle := foldTypographic(text), foldTypographic(needle)
+	if foldedText == text && foldedNeedle == needle {
+		return nil
+	}
+	spans := exactMatches(foldedText, foldedNeedle)
+	if len(spans) == 0 {
+		want := strings.Split(strings.TrimSuffix(foldedNeedle, "\n"), "\n")
+		spans = lineMatches(foldedText, foldedNeedle, want, strings.TrimSpace)
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+	return originalOffsets(text, spans)
+}
+
+// originalOffsets maps spans of foldTypographic(text) back to byte offsets in
+// text. Indexing folded offsets directly would splice a shifted region whenever
+// a fold expanded: the em dash in "a—b" folds to two hyphens, one byte more
+// than the original occupies.
+func originalOffsets(text string, foldedSpans [][2]int) [][2]int {
+	// origToFolded is indexed by original byte offset and records one entry per
+	// byte of the rune, so every byte of a multi-byte rune resolves to the same
+	// folded position. The trailing sentinel is one past the folded end, as
+	// upstream's _build_orig_to_norm_map.
+	origToFolded := make([]int, 0, len(text)+1)
+	foldedPos := 0
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		for j := 0; j < size; j++ {
+			origToFolded = append(origToFolded, foldedPos)
+		}
+		if repl, ok := typographicFold[r]; ok {
+			foldedPos += len(repl)
+		} else {
+			foldedPos += size
+		}
+		i += size
+	}
+	origToFolded = append(origToFolded, foldedPos)
+
+	// foldedToOrig keeps the first original byte folding to each position, so a
+	// span starts on the rune it matched rather than inside its expansion.
+	foldedToOrig := make(map[int]int, len(origToFolded))
+	for orig, folded := range origToFolded[:len(origToFolded)-1] {
+		if _, ok := foldedToOrig[folded]; !ok {
+			foldedToOrig[folded] = orig
+		}
+	}
+	origLen := len(origToFolded) - 1
+	spans := make([][2]int, 0, len(foldedSpans))
+	for _, s := range foldedSpans {
+		start, ok := foldedToOrig[s[0]]
+		if !ok {
+			continue // a folded position no original byte maps to: skip, as upstream
+		}
+		end := start
+		for end < origLen && origToFolded[end] < s[1] {
+			end++
+		}
+		spans = append(spans, [2]int{start, end})
+	}
+	return spans
 }
 
 func windowMatches(window, want []string, norm func(string) string) bool {
@@ -235,9 +383,10 @@ func hunkRange(start, n int) string {
 }
 
 // FindMatches exposes the patch tool's matching strategies to other tools: an
-// exact substring match first, then the line-based normalizers. The spans are
-// non-overlapping byte offsets into text, and the strategy names which matcher
-// won, so a caller can report how a patch landed.
+// exact substring match first, then the line-based normalizers, escaped
+// whitespace, and typographic folding. The spans are non-overlapping byte
+// offsets into text, and the strategy names which matcher won, so a caller can
+// report how a patch landed.
 func FindMatches(text, needle string) ([][2]int, string) {
 	return findMatches(text, needle)
 }

@@ -154,6 +154,7 @@ func TestPatch(t *testing.T) {
 		{"ambiguous", "return 1", "return 2", false, "", "Found 2 matches", ""},
 		{"replace all", "return 1", "return 2", true, "func a() {\n\treturn 2\n}\n\nfunc b() {\n\treturn 2\n}\n", "", "exact"},
 		{"indentation fuzzy", "func b() {\n    return 1\n}\n", "func b() {\n\treturn 3\n}\n", false, "func a() {\n\treturn 1\n}\n\nfunc b() {\n\treturn 3\n}\n", "", "line_trimmed"},
+		{"escaped newline and tab", "func a() {\n\\treturn 1", "func a() {\n\treturn 9", false, "func a() {\n\treturn 9\n}\n\nfunc b() {\n\treturn 1\n}\n", "", "escape_normalized"},
 		{"not found", "nope", "x", false, "", "Could not find", ""},
 		{"same", "a", "a", false, "", "must differ", ""},
 	}
@@ -228,5 +229,36 @@ func TestSearchFiles(t *testing.T) {
 	}
 	if _, e := call(t, r, "search_files", map[string]any{"pattern": "("}); !strings.Contains(e, "Invalid regex") {
 		t.Fatalf("bad regex: %q", e)
+	}
+}
+
+// TestPatchUnicodeNormalized pins strategy 7: typographic Unicode in the file
+// matches the ASCII the model typed, and the span lands on the original text
+// even when a character expands (an em dash normalizes to two hyphens).
+func TestPatchUnicodeNormalized(t *testing.T) {
+	r, dir := setup(t)
+	p := filepath.Join(dir, "u.txt")
+	put(t, p, "x := \u201ca\u2014b\u201d\ny := 2\n")
+	obj, e := call(t, r, "patch", map[string]any{"path": "u.txt", "old_string": `x := "a--b"`, "new_string": `x := "a-b"`})
+	if e != "" {
+		t.Fatalf("error = %q", e)
+	}
+	if obj["strategy"] != "unicode_normalized" {
+		t.Fatalf("strategy = %v", obj["strategy"])
+	}
+	got, _ := os.ReadFile(p)
+	// The replacement is the caller's text verbatim, and the untouched line
+	// keeps its typography.
+	if want := "x := \"a-b\"\ny := 2\n"; string(got) != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestFindMatchesEmptyNeedle pins the guard around the exported matcher: an
+// empty needle answers no match instead of looping, which the tool layer also
+// refuses before it gets here.
+func TestFindMatchesEmptyNeedle(t *testing.T) {
+	if spans, strategy := FindMatches("abc", ""); len(spans) != 0 || strategy != "" {
+		t.Fatalf("spans = %v, strategy = %q", spans, strategy)
 	}
 }
