@@ -42,7 +42,7 @@ Assumptions:
 | T7a guardian reviewer | S7 | inline | done | 7c12c4d |
 | T7b gate ladder, breaker, menu | S7 | inline | done | 9eb6b54, dc28f94 |
 | T7c config and runtime wiring | S7 | inline | done | fc88d5d |
-| T8 TUI canonical wire | S8 | inline | done | be16897, 600a8c0, see L14 |
+| T8 TUI canonical wire | S8 | inline | done | be16897, 600a8c0, ac26705, 9bb4a88 |
 | T9 Retry-After, max_tokens continuation | S9 | inline | planned | |
 | T10 patch strategies, .gitignore | S10 | inline | planned | |
 
