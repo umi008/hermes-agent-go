@@ -102,6 +102,7 @@ compatibility with the Hermes home where practical.
   - T6a `/v1/responses`: create, get and delete with a SQLite LRU store, `previous_response_id` and `conversation` chains that continue one session, upstream's streaming events, and `max_concurrent_runs` (10) on chat completions and responses.
   - T6b `/v1/runs`: background runs with pollable status, an SSE event stream with replay, stop, and session resume by `session_id`.
   - T6c `/api/sessions`: list, create, get, patch (title and sidebar flags), delete, paged messages and fork over the runtime's state.db.
+  - T7 smart approval (`approvals.mode: smart`): an auxiliary LLM reviews every flagged command before any human. `approve` runs it once and persists nothing, `deny` reduces the menu to `[o]nce  |  [d]eny` (or blocks outright with "BLOCKED by smart approval" where nobody can answer), and `escalate`, an empty answer or a failed call follows the normal path. Shell comments are stripped before assessment, `approvals.smart_policy` rides the guardian system prompt, and `approvals.denial_breaker_threshold` (default 3) appends the circuit-breaker stop text after repeated denials. `auxiliary.approval` picks the assessing route and timeout (30 s default).
   - T6d `/api/sessions/{id}/chat`, `/chat/stream`: one turn over a stored session, seeded with its active transcript, answered as `hermes.session.chat.completion` or as upstream's typed SSE events (`run.started`, `message.started`, `assistant.delta`, `tool.started`/`tool.failed`, `assistant.completed`, `run.<status>`, `done`). The streamed turn is also a pollable run. A Browser model lock is persisted under `model_config.browser_model_lock` and replayed by later turns.
 
 ## Known V7 gaps (deliberate, tracked)
@@ -145,7 +146,8 @@ compatibility with the Hermes home where practical.
 ## Known V2 gaps (deliberate, tracked)
 
 - No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
-- No smart (LLM) approval and no gateway approvals; `chat -q` has no prompter (the interactive CLI asks), so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
+- Smart approval (`approvals.mode: smart`) covers the surfaces that can ask a human: the interactive CLI, the TUI wire and the gateways. An unattended run (`-q`, `serve`, cron) resolves from its own mode before the guardian, as upstream. Not ported: upstream approval plugin hooks (`pre_approval_request`/`post_approval_response`), `temperature: 0` on the verdict (the client contract has no sampling knobs), per-task `reasoning_effort`, the pending-approval fallback and gateway inline keyboards.
+- `chat -q` has no prompter, so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
 - `patch` ports exact and whitespace-tolerant matching only; upstream's further fuzzy strategies are not ported. No `.gitignore` filtering in `search_files`.
 - Docker: killing `docker exec` does not stop the process inside the container; the container is removed on exit.
 - Command deobfuscation is limited to upstream's normalization; no parser-limit block.

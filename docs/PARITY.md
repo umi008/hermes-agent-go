@@ -43,7 +43,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 | `read_file`, `write_file`, `patch`, `search_files` | partial (no fuzzy patch strategies beyond exact/whitespace, no .gitignore) | `tools/file_*.py` (UNVERIFIED names) |
 | `terminal` (local backend), `process_manage` | done | `tools/terminal_tool*.py`, `tools/environments/local.py` |
 | Dangerous-command detection and approval | done (116-command parity fixture; once/session/deny prompt in the interactive CLI) | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
-| Smart (LLM) approval gate | later | `tools/approval.py:764` |
+| Smart (LLM) approval gate | done (guardian verdicts, smart-deny menu, comment stripping, operator policy, denial breaker; no approval plugin hooks) | `tools/approval.py:764`, `tools/approval_smart.py` |
 | `web_search`, `web_extract` | done (Tavily only) | `tools/web_*.py`, `plugins/web/` |
 | Docker terminal backend | done | `tools/environments/docker.py` |
 | SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |

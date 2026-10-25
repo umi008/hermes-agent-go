@@ -212,6 +212,7 @@ enabled_toolsets, workdir
 ## 8. OpenAI-compatible API server
 
 - **Routes (implemented):** `GET /v1/models`, `POST /v1/chat/completions`, `POST/GET/DELETE /v1/responses`, `POST /v1/runs` with `GET /v1/runs/{id}`, `GET /v1/runs/{id}/events`, `POST /v1/runs/{id}/stop`, the `/api/sessions` resource routes and `POST /api/sessions/{id}/chat[/stream]`. Everything else returns the OpenAI 404 envelope.
+- **Approvals (TUI wire):** an `approval` server request carries `request_id`, `command`, `description`, `choices` (`once`, `session`, `deny`) and `allow_permanent: false`. A smart-deny override sends `choices: ["once","deny"]` plus `smart_denied: true`, and any answer outside that offer resolves as a deny.
 - **Auth:** `Authorization: Bearer <token>`. The token is `api_server.api_key` from `config.yaml`, else `HERMES_API_KEY` from `.env` or the environment. A non-loopback address refuses to start without one.
 - **Bodies:** OpenAI request fields (`model`, `messages`, `stream`, `temperature`, …); fields the port does not implement are accepted and ignored, as upstream's routes tolerate loose clients.
 - **Responses:** the OpenAI envelope, and errors as `{"error":{"message","type","code"}}` with 400, 401 or 500.
