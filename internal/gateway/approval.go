@@ -12,16 +12,23 @@ import (
 // The approval conversation, reusing the CLI's wording so the two menus read
 // the same (hermes_cli/repl.go, upstream locales/en.yaml `approval.*`).
 const (
-	approvalReprompt = "Reply [o]nce, [s]ession or [d]eny."
-	approvalDenied   = "✗ Denied"
-	approvalOnce     = "✓ Allowed once"
-	approvalSession  = "✓ Allowed for this session"
+	approvalReprompt      = "Reply [o]nce, [s]ession or [d]eny."
+	approvalSmartReprompt = "Reply [o]nce or [d]eny."
+	approvalDenied        = "✗ Denied"
+	approvalOnce          = "✓ Allowed once"
+	approvalSession       = "✓ Allowed for this session"
 )
 
 // ApprovalPrompt renders the upstream dangerous-command menu for a chat. The
 // port never writes config.yaml, so the menu is the short one (no [a]lways);
-// "always" answers count as session, as the CLI does.
+// "always" answers count as session, as the CLI does. A smart deny reduces it
+// to upstream's once/deny shape: the guardian already judged the command
+// dangerous, so the human may only override it for one operation.
 func ApprovalPrompt(r approval.Request) string {
+	if r.SmartDenied {
+		return fmt.Sprintf("⚠️  DANGEROUS COMMAND: %s\n%s\n\n[o]nce  |  [d]eny\n\nChoice [o/D]:",
+			r.Description, r.Command)
+	}
 	return fmt.Sprintf("⚠️  DANGEROUS COMMAND: %s\n%s\n\n[o]nce  |  [s]ession  |  [d]eny\n\nChoice [o/s/D]:",
 		r.Description, r.Command)
 }
@@ -36,7 +43,12 @@ func (c *chat) ask(ctx context.Context, r approval.Request) (approval.Choice, er
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
-			if err := c.say(ctx, approvalReprompt); err != nil {
+			reprompt := approvalReprompt
+			if r.SmartDenied {
+				// The menu offered no scope, so the re-prompt must not either.
+				reprompt = approvalSmartReprompt
+			}
+			if err := c.say(ctx, reprompt); err != nil {
 				return approval.Deny, err
 			}
 		}
@@ -48,7 +60,7 @@ func (c *chat) ask(ctx context.Context, r approval.Request) (approval.Choice, er
 			}
 			return approval.Deny, errors.New("gateway: chat closed while waiting for an approval")
 		}
-		choice, recognised := parseApproval(text)
+		choice, recognised := parseApproval(text, r.SmartDenied)
 		if !recognised {
 			continue
 		}
@@ -61,15 +73,20 @@ func (c *chat) ask(ctx context.Context, r approval.Request) (approval.Choice, er
 
 // parseApproval maps a typed answer to a choice, as the CLI's linePrompter:
 // o/once, s/session (and a/always, since permanent approval is unavailable in
-// this port) and d/deny.
-func parseApproval(text string) (approval.Choice, bool) {
+// this port) and d/deny. A smart deny accepts only once/deny.
+func parseApproval(text string, smartDenied bool) (approval.Choice, bool) {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "o", "once":
 		return approval.Once, true
-	case "s", "session", "a", "always":
-		return approval.Session, true
 	case "d", "deny":
 		return approval.Deny, true
+	}
+	if smartDenied {
+		return approval.Deny, false
+	}
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "s", "session", "a", "always":
+		return approval.Session, true
 	}
 	return approval.Deny, false
 }

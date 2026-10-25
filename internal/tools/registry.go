@@ -46,6 +46,26 @@ type Registry struct {
 	tools map[string]Tool
 }
 
+// Inventory groups the tools that can run by toolset, with names sorted, so a
+// client can show what the agent actually offers. A tool whose Available
+// reports false is left out, as Specs leaves it out.
+func (r *Registry) Inventory() map[string][]string {
+	if r == nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for name, t := range r.tools {
+		if t.Available != nil && !t.Available() {
+			continue
+		}
+		out[t.Toolset] = append(out[t.Toolset], name)
+	}
+	for _, names := range out {
+		sort.Strings(names)
+	}
+	return out
+}
+
 // NewRegistry registers tools, rejecting duplicates and missing fields.
 func NewRegistry(tools ...Tool) (*Registry, error) {
 	r := &Registry{tools: map[string]Tool{}}
@@ -197,4 +217,32 @@ func Decode(args json.RawMessage, v any) error {
 		return Error("Invalid arguments: " + err.Error())
 	}
 	return nil
+}
+
+// Without returns a registry minus the named tools.
+func (r *Registry) Without(names ...string) *Registry {
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	out := &Registry{tools: map[string]Tool{}}
+	for name, t := range r.tools {
+		if !drop[name] {
+			out.tools[name] = t
+		}
+	}
+	return out
+}
+
+// Has reports whether the registry holds the named tool.
+func (r *Registry) Has(name string) bool { return r.tools[name].Name != "" }
+
+// With returns a registry holding r's tools plus extra; a name clash is an
+// error, as in NewRegistry.
+func (r *Registry) With(extra ...Tool) (*Registry, error) {
+	all := make([]Tool, 0, len(r.tools)+len(extra))
+	for _, t := range r.tools {
+		all = append(all, t)
+	}
+	return NewRegistry(append(all, extra...)...)
 }

@@ -2,13 +2,16 @@
 # Static hermes-go on distroless. The image has no shell, so the local
 # `terminal` tool cannot run commands inside it; use the Docker terminal
 # backend or a base image with a shell for that.
-FROM golang:1.27 AS build
+# The build stage runs on the builder's platform and cross-compiles, so a
+# multi-arch image needs no emulation.
+FROM --platform=$BUILDPLATFORM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
     -o /out/hermes-go ./cmd/hermes-go
 # distroless has no mkdir; create the home here so a named volume inherits
 # the nonroot owner instead of root.

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/llm"
 )
@@ -151,6 +152,20 @@ func TestStreamErrors(t *testing.T) {
 		var apiErr *llm.APIError
 		if !errors.As(err, &apiErr) || apiErr.Status != 429 || !llm.IsRetryable(err) {
 			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("retry-after is surfaced", func(t *testing.T) {
+		// A rate limiter that says how long to wait: the agent must see it.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Retry-After", "12")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"slow down"}`))
+		}))
+		defer srv.Close()
+		_, err := (&Client{BaseURL: srv.URL, Name: "or"}).Stream(context.Background(), llm.Request{Model: "m"}, nil)
+		var apiErr *llm.APIError
+		if !errors.As(err, &apiErr) || apiErr.RetryAfter != 12*time.Second {
+			t.Fatalf("err = %v, want the provider's Retry-After", err)
 		}
 	})
 	t.Run("truncated stream is retryable", func(t *testing.T) {

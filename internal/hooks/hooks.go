@@ -1,7 +1,7 @@
 // Package hooks ports upstream's shell hooks (agent/shell_hooks.py): user
-// commands from the hooks: config run around tool calls. A command reads a
-// JSON payload on stdin and may answer with JSON on stdout; exit code 2
-// blocks a pre_tool_call.
+// commands from the hooks: config run around tool calls and lifecycle
+// events. A command reads a JSON payload on stdin and may answer with JSON
+// on stdout; exit code 2 blocks a pre_tool_call.
 package hooks
 
 import (

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/skills"
 	"github.com/umi008/hermes-agent-go/internal/state"
@@ -39,6 +40,9 @@ type toolDeps struct {
 	profile   string
 	asker     clarify.Asker     // nil in single-query mode: nobody to ask
 	prompter  approval.Prompter // nil in single-query mode
+	// route is the runtime's primary model, which an auxiliary side call
+	// inherits unless auxiliary.<task> pins its own.
+	route agent.Route
 }
 
 // buildTools assembles the V2 tools. The returned close releases the
@@ -53,9 +57,11 @@ func buildTools(ctx context.Context, d toolDeps) (*tools.Registry, func(), error
 		Detector:          det,
 		Prompter:          d.prompter,
 		Allowlist:         stringList(d.cfg, "command_allowlist"),
-		Off:               d.cfg.String("approvals", "mode") == "off",
+		Off:               approvalsMode(d.cfg, d.logger) == "off",
 		UnattendedApprove: d.cfg.String("approvals", "single_query_mode") == "approve",
 		SudoPassword:      sudo != "",
+		Smart:             smartReviewer(d.cfg, d.lookup, d.route, d.logger),
+		BreakerThreshold:  denialBreakerThreshold(d.cfg),
 		Logger:            d.logger,
 	})
 

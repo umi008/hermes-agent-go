@@ -23,7 +23,7 @@ Update the Status column as verticals land. Upstream paths are relative to
 | `config.yaml` load and deep-merge, unknown keys preserved | done | `hermes_cli/config.py:1487,2088,2476` |
 | Config migrations | out (read v ≥ 12, warn) | `hermes_cli/config_migrations.py` |
 | `.env` secrets | done | `agent/secret_scope.py:294-309` |
-| Provider resolution (`model`, `providers`, `fallback_providers`) | partial (no `fallback_providers`) | `plugins/model-providers/`, `agent/agent_init*.py` |
+| Provider resolution (`model`, `providers`, `fallback_providers`) | done (fallback chain: rate limit, billing, auth and missing model switch at once, transient errors after the retries; turn-scoped with the primary rate-limit cooldown; no credential pools, `min_switch_reset_seconds` or provider `reset_at`) | `plugins/model-providers/`, `agent/agent_init*.py` |
 | OpenAI chat completions client, streaming | done | `agent/transports/chat_completions.py` |
 | Anthropic Messages client, streaming | done | `agent/transports/anthropic.py`, `agent/anthropic_adapter.py` |
 | Anthropic prompt caching (4 breakpoints, TTL) | done | `agent/prompt_caching.py` |
@@ -33,22 +33,22 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Agent loop: iterations, retries, interrupt, steer | done | `agent/conversation_loop.py`, `agent/interrupt_control.py` |
 | Observable tool-call event stream | done | `agent/stream_delivery.py` |
 | `<think>` scrubbing across deltas | done | `agent/conversation_loop.py:354-361` |
-| Auxiliary side-LLM routing | later | `agent/auxiliary_client.py` |
+| Auxiliary side-LLM routing | partial (`auxiliary.compression`: provider, model, base_url, api_key, key_env, api_mode, timeout with the 300 s floor; the port has no other side calls; no auto discovery chain, per-task fallback chain, extra_body or reasoning_effort) | `agent/auxiliary_client.py` |
 
 ## Tools (V2)
 
 | Feature | Status | Upstream |
 |---|---|---|
 | Tool registry, toolsets, `check_fn` | done | `tools/registry.py`, `toolsets.py`, `model_tools.py` |
-| `read_file`, `write_file`, `patch`, `search_files` | partial (no fuzzy patch strategies beyond exact/whitespace, no .gitignore) | `tools/file_*.py` (UNVERIFIED names) |
+| `read_file`, `write_file`, `patch`, `search_files` | partial (patch lacks `boundary_note`; search ignores what git ignores, not `rg` semantics) | `tools/file_*.py` (UNVERIFIED names) |
 | `terminal` (local backend), `process_manage` | done | `tools/terminal_tool*.py`, `tools/environments/local.py` |
 | Dangerous-command detection and approval | done (116-command parity fixture; once/session/deny prompt in the interactive CLI) | `tools/approval_detection.py:228,1548`, `tools/approval.py` |
-| Smart (LLM) approval gate | later | `tools/approval.py:764` |
+| Smart (LLM) approval gate | done (guardian verdicts, smart-deny menu, comment stripping, operator policy, denial breaker; no approval plugin hooks) | `tools/approval.py:764`, `tools/approval_smart.py` |
 | `web_search`, `web_extract` | done (Tavily only) | `tools/web_*.py`, `plugins/web/` |
 | Docker terminal backend | done | `tools/environments/docker.py` |
 | SSH, Modal, Daytona, Vercel backends | out | `tools/environments/` |
 | `todo_list`, `clarify` | done (clarify answered in the interactive CLI) | `agent/inline_tool_executors.py:253-313` |
-| `delegate_task` (subagents) | later | `tools/delegate_tool*.py` |
+| `delegate_task` (subagents) | done (synchronous batch, no background dispatch or list/steer/stop; leaf children only, sharing the parent's terminal session; no cost estimate or spill file) | `tools/delegate_tool*.py` |
 | `vision_analyze`, `image_generate`, `text_to_speech` | out | `tools/` |
 | Browser tools | out | `tools/browser*` |
 | `execute_code` | out | `tools/code_execution*` |
@@ -80,9 +80,11 @@ Update the Status column as verticals land. Upstream paths are relative to
 | MCP client over stdio | done | `tools/mcp_tool.py:160` |
 | MCP client over streamable HTTP | done | `tools/mcp_tool.py:162-164` |
 | MCP SSE transport | done | `tools/mcp_tool*.py` |
-| Shell hooks (`hooks:` config) | done (`pre_tool_call`, `post_tool_call`) | `agent/shell_hooks.py` |
-| MCP sampling, OAuth, resources and prompts tools | later | `tools/mcp_tool*.py` |
-| Other shell hook events | later | `agent/shell_hooks.py` |
+| Shell hooks (`hooks:` config) | done (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`, `subagent_start`, `subagent_stop`) | `agent/shell_hooks.py` |
+| MCP resources and prompts utility tools | done | `tools/mcp_tool_schema.py`, `tools/mcp_tool_handlers.py` |
+| MCP reconnect with backoff | done | `tools/mcp_tool_server_run.py` |
+| MCP sampling, OAuth, event tools | later | `tools/mcp_tool*.py` |
+| Other shell hook events (`pre_api_request`, `pre_compress`, `pre_verify`, gateway and approval events, ...) | later | `agent/shell_hooks.py` |
 | Python plugin system | out (no Python plugins in Go) | `hermes_cli/plugins.py` |
 
 ## Interfaces (V5)
@@ -98,16 +100,24 @@ Update the Status column as verticals land. Upstream paths are relative to
 | Other 20+ platforms | out | `plugins/platforms/` |
 | Cron scheduler with `jobs.json` | done (interval, 5-field cron and one-shot schedules; at-most-once ticks behind a lock file; output files with retention; no delivery targets, quotas or threads) | `cron/jobs.py`, `cron/scheduler.py` |
 | OpenAI-compatible API: `/v1/chat/completions`, `/v1/models` | done (streaming and non-streaming, bearer token, one session per request) | `gateway/platforms/api_server.py:59-81` |
-| `/v1/responses`, `/v1/runs`, `/api/sessions` | later | `gateway/platforms/api_server*.py` |
+| `/v1/responses` (store, chains, conversations, streaming, run cap) | done | `gateway/platforms/api_server.py` |
+| `/v1/runs` (start, status, events with replay, stop) | done | `gateway/platforms/api_server_runs.py` |
+| `/v1/runs` approval, clarify, steer, resolve-unknown, Idempotency-Key | later | `gateway/platforms/api_server_runs.py` |
+| `/api/sessions` list, create, get, patch, delete, messages, fork | done | `gateway/platforms/api_server.py` |
+| `/api/sessions/{id}/chat`, `/chat/stream`, model lock | done (one turn over a stored session, synchronous and SSE, with the persisted Browser model lock; no provider switching) | `gateway/platforms/api_server.py` |
+| Compression lineage (tip projection, ancestor messages, lineage-wide flags) | later | `hermes_state_compression.py` |
 | Desktop app, dashboard web UI | out | `apps/desktop/`, `web/` |
 | ACP | out | — |
 
-## Packaging (V6)
+## Packaging (V6, V8)
 
 | Feature | Status | Upstream |
 |---|---|---|
 | Single CGO-free binary | done (`CGO_ENABLED=0`, pure-Go SQLite; `hermes-go version`) | — |
-| Dockerfile (distroless) | done (static, nonroot, `HERMES_HOME=/data`; no shell, so the local `terminal` tool cannot run inside it) | `Dockerfile` |
+| Dockerfile (distroless) | done (static, nonroot, `HERMES_HOME=/data`; no shell, so the local `terminal` tool cannot run inside it; multi-arch image on `ghcr.io/umi008/hermes-go` from release tags) | `Dockerfile` |
+| One-line install scripts | done (`scripts/install.sh`, `scripts/install.ps1` from GitHub releases with checksum verification; `go install`) | `scripts/install.sh`, `scripts/install.ps1` |
+| `doctor` | partial (offline checks: home, `.env`, config, provider, Tavily key, docker, git; no connectivity, platform or state checks, no `--fix`) | `hermes_cli/doctor*.py` |
+| `setup` wizard | out until the owner decides: the port never writes `config.yaml` | `hermes_cli/setup.py` |
 | goreleaser, GitHub Actions CI | done (CI: vet, `-race` tests on Linux and Windows, lint, image build and smoke; release on `v*` tags: linux, darwin and windows on amd64 and arm64, checksums) | `.github/workflows/` |
 
 ## Out of scope (explicit)

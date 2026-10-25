@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -105,13 +107,16 @@ func (f *Files) search(ctx context.Context, raw json.RawMessage) (string, error)
 		return filepath.ToSlash(p)
 	}
 
+	// git's ignore verdict is built once, then applied inside the walk, so
+	// paging counts only the results that survived it.
+	ignore := gitIgnores(ctx, root)
 	var res searchResult
 	var err error
 	switch a.Target {
 	case "files":
-		err = findFiles(ctx, root, a, display, &res)
+		err = findFiles(ctx, root, a, ignore, display, &res)
 	case "content":
-		err = grep(ctx, root, a, display, &res)
+		err = grep(ctx, root, a, ignore, display, &res)
 	default:
 		return "", tools.Error(fmt.Sprintf("unknown target %q (use content or files)", a.Target))
 	}
@@ -124,7 +129,10 @@ func (f *Files) search(ctx context.Context, raw json.RawMessage) (string, error)
 	return tools.Result(res)
 }
 
-func walk(ctx context.Context, root string, visit func(path string) error) error {
+// walk visits every regular file under root. ignore may be nil, which walks
+// unfiltered. An ignored directory is pruned instead of descended into, so
+// nothing under it is even read.
+func walk(ctx context.Context, root string, ignore *ignoreSet, visit func(path string) error) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -132,10 +140,14 @@ func walk(ctx context.Context, root string, visit func(path string) error) error
 		if err != nil {
 			return nil // unreadable entries are skipped, like ripgrep
 		}
+		ignored := ignore.ignores(p, d.IsDir())
 		if d.IsDir() {
-			if p != root && skipDirs[d.Name()] {
+			if p != root && (ignored || skipDirs[d.Name()]) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if ignored {
 			return nil
 		}
 		if !d.Type().IsRegular() {
@@ -145,14 +157,84 @@ func walk(ctx context.Context, root string, visit func(path string) error) error
 	})
 }
 
+// ignoreSet is the set of paths under root that git reported as ignored. It
+// holds slash-separated paths relative to root: files as-is and ignored
+// directories with a trailing slash, as git's --directory form reports them.
+type ignoreSet struct {
+	root  string
+	paths map[string]bool
+}
+
+// gitIgnores asks git once, before the walk, which paths it would ignore under
+// root. Only untracked ignored paths are reported, which is git's own scope:
+// ignore rules never apply to tracked files. Anything that keeps git from
+// answering, including a plain directory, means no filtering at all, because a
+// search must never fail or warn over an optional optimisation.
+func gitIgnores(ctx context.Context, root string) *ignoreSet {
+	out, err := gitOutput(ctx, root, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		return nil
+	}
+	// --directory is what keeps this cheap: an ignored node_modules is one
+	// entry instead of thousands of paths.
+	out, err = gitOutput(ctx, root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--directory")
+	if err != nil {
+		return nil
+	}
+	set := &ignoreSet{root: root, paths: map[string]bool{}}
+	for _, entry := range strings.Split(string(out), "\x00") {
+		if entry != "" {
+			set.paths[entry] = true
+		}
+	}
+	if len(set.paths) == 0 {
+		return nil
+	}
+	return set
+}
+
+// gitOutput runs git against root under the search's context, so a cancelled
+// search does not leak a process.
+func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	return cmd.Output()
+}
+
+// ignores reports whether p is ignored, checked through the path itself and
+// every ancestor directory. Ancestors are directories, so they are looked up
+// in git's trailing-slash form.
+func (s *ignoreSet) ignores(p string, isDir bool) bool {
+	if s == nil {
+		return false
+	}
+	rel, err := filepath.Rel(s.root, p)
+	if err != nil {
+		return false
+	}
+	rel = path.Clean(filepath.ToSlash(rel))
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return false
+	}
+	for {
+		if s.paths[rel] || (isDir && s.paths[rel+"/"]) {
+			return true
+		}
+		parent := path.Dir(rel)
+		if parent == rel {
+			return false
+		}
+		rel, isDir = parent, true
+	}
+}
+
 // inPage reports whether the nth result falls in the [offset, offset+limit) window.
 func inPage(n int, a searchArgs) bool { return n > a.Offset && n <= a.Offset+a.Limit }
 
-func findFiles(ctx context.Context, root string, a searchArgs, display func(string) string, res *searchResult) error {
+func findFiles(ctx context.Context, root string, a searchArgs, ignore *ignoreSet, display func(string) string, res *searchResult) error {
 	if _, err := filepath.Match(a.Pattern, ""); err != nil {
 		return tools.Error("Invalid glob pattern: " + err.Error())
 	}
-	err := walk(ctx, root, func(p string) error {
+	err := walk(ctx, root, ignore, func(p string) error {
 		if ok, _ := filepath.Match(a.Pattern, filepath.Base(p)); ok {
 			res.TotalCount++
 			if inPage(res.TotalCount, a) {
@@ -165,7 +247,7 @@ func findFiles(ctx context.Context, root string, a searchArgs, display func(stri
 	return err
 }
 
-func grep(ctx context.Context, root string, a searchArgs, display func(string) string, res *searchResult) error {
+func grep(ctx context.Context, root string, a searchArgs, ignore *ignoreSet, display func(string) string, res *searchResult) error {
 	re, err := regexp.Compile(a.Pattern)
 	if err != nil {
 		return tools.Error("Invalid regex: " + err.Error())
@@ -180,7 +262,7 @@ func grep(ctx context.Context, root string, a searchArgs, display func(string) s
 		res.Counts = map[string]int{}
 	}
 	files := 0
-	err = walk(ctx, root, func(p string) error {
+	err = walk(ctx, root, ignore, func(p string) error {
 		if a.FileGlob != "" {
 			if ok, _ := filepath.Match(a.FileGlob, filepath.Base(p)); !ok {
 				return nil

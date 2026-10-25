@@ -62,9 +62,13 @@ type Server struct {
 	// Include, when non-nil, is the only tools registered (an empty list
 	// registers none) and wins over Exclude. Entries are names or globs.
 	Include, Exclude []string
+	// Resources and Prompts gate the utility tools (tools.resources and
+	// tools.prompts); nil keeps upstream's default of on.
+	Resources, Prompts *bool
 
-	// transport overrides the dialed transport in tests.
-	transport mcp.Transport
+	// transport overrides the dialed transport in tests; it is called on
+	// every dial.
+	transport func() (mcp.Transport, error)
 }
 
 // Options configure Connect.
@@ -74,19 +78,17 @@ type Options struct {
 	LookupEnv func(string) (string, bool)
 	Version   string
 	Logger    *slog.Logger
+
+	// wait sleeps between connect attempts; tests record it instead.
+	wait func(context.Context, time.Duration) error
+	// respawnWait bounds how long a call waits for a reconnect.
+	respawnWait time.Duration
 }
 
 // Manager owns the live sessions.
 type Manager struct {
 	logger *slog.Logger
 	conns  []*conn
-}
-
-type conn struct {
-	server  Server
-	session *mcp.ClientSession
-	tools   []*mcp.Tool
-	stop    context.CancelFunc
 }
 
 // Connect dials every server at once. A server that fails to connect is
@@ -100,6 +102,12 @@ func Connect(ctx context.Context, o Options) *Manager {
 	}
 	if o.Version == "" {
 		o.Version = "dev"
+	}
+	if o.wait == nil {
+		o.wait = sleep
+	}
+	if o.respawnWait <= 0 {
+		o.respawnWait = respawnWait
 	}
 	m := &Manager{logger: o.Logger}
 	results := make([]*conn, len(o.Servers))
@@ -123,20 +131,53 @@ func Connect(ctx context.Context, o Options) *Manager {
 	return m
 }
 
+// dial connects one server, retrying transient failures like upstream's
+// initial connect, lists its tools and starts the reconnect supervisor.
 func dial(ctx context.Context, s Server, o Options) (*conn, error) {
-	t, err := transportFor(s, o.LookupEnv)
-	if err != nil {
+	c := newConn(ctx, s, o)
+	var session *mcp.ClientSession
+	var stop context.CancelFunc
+	for attempt := 0; ; attempt++ {
+		var err error
+		session, stop, err = c.open()
+		if err == nil {
+			break
+		}
+		if permanent(err) || attempt >= maxInitialRetries {
+			c.cancel()
+			return nil, err
+		}
+		o.Logger.Warn("MCP server connect failed, retrying", "server", s.Name, "attempt", attempt+1,
+			"err", sanitize(err.Error()))
+		if werr := o.wait(ctx, jittered(backoff(attempt))); werr != nil {
+			c.cancel()
+			return nil, err
+		}
+	}
+	if err := c.listTools(session); err != nil {
+		_ = session.Close()
+		stop()
+		c.cancel()
 		return nil, err
 	}
-	timeout := s.ConnectTimeout
-	if timeout <= 0 {
-		timeout = DefaultConnectTimeout
+	c.publish(session, stop)
+	go c.supervise()
+	o.Logger.Debug("MCP server connected", "server", s.Name, "tools", len(c.tools))
+	return c, nil
+}
+
+// open connects one session. The session context outlives open: an SSE
+// stream is a GET bound to it, so the connect timeout cancels it only
+// while connecting.
+func (c *conn) open() (*mcp.ClientSession, context.CancelFunc, error) {
+	t, err := transportFor(c.server, c.opts.LookupEnv)
+	if err != nil {
+		return nil, nil, err
 	}
-	// The session context outlives dial: an SSE stream is a GET bound to
-	// it, so the connect timeout cancels it only while connecting.
-	sctx, stop := context.WithCancel(ctx)
+	timeout := c.connectTimeout()
+	sctx, stop := context.WithCancel(c.ctx)
 	timer := time.AfterFunc(timeout, stop)
-	client := mcp.NewClient(&mcp.Implementation{Name: "hermes-agent-go", Version: o.Version}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "hermes-agent-go", Version: c.opts.Version}, nil)
 	session, err := client.Connect(sctx, t, nil)
 	if !timer.Stop() && err == nil {
 		_ = session.Close()
@@ -144,32 +185,43 @@ func dial(ctx context.Context, s Server, o Options) (*conn, error) {
 	}
 	if err != nil {
 		stop()
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, nil, fmt.Errorf("connect: %w", err)
 	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
+	return session, stop, nil
+}
+
+func (c *conn) connectTimeout() time.Duration {
+	if c.server.ConnectTimeout > 0 {
+		return c.server.ConnectTimeout
+	}
+	return DefaultConnectTimeout
+}
+
+// listTools records the first session's capabilities and filtered tools;
+// later reconnects keep these registrations.
+func (c *conn) listTools(session *mcp.ClientSession) error {
+	if init := session.InitializeResult(); init != nil {
+		c.caps = init.Capabilities
+	}
+	if c.caps != nil && c.caps.Tools == nil {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(c.ctx, c.connectTimeout())
 	defer cancel()
-	c := &conn{server: s, session: session, stop: stop}
-	if session.InitializeResult() != nil && session.InitializeResult().Capabilities != nil &&
-		session.InitializeResult().Capabilities.Tools == nil {
-		return c, nil
-	}
 	for tool, err := range session.Tools(cctx, nil) {
 		if err != nil {
-			_ = session.Close()
-			stop()
-			return nil, fmt.Errorf("list tools: %w", err)
+			return fmt.Errorf("list tools: %w", err)
 		}
-		if (filter{include: s.Include, includeSet: s.Include != nil, exclude: s.Exclude}).allows(tool.Name) {
+		if (filter{include: c.server.Include, includeSet: c.server.Include != nil, exclude: c.server.Exclude}).allows(tool.Name) {
 			c.tools = append(c.tools, tool)
 		}
 	}
-	o.Logger.Debug("MCP server connected", "server", s.Name, "tools", len(c.tools))
-	return c, nil
+	return nil
 }
 
 func transportFor(s Server, lookup func(string) (string, bool)) (mcp.Transport, error) {
 	if s.transport != nil {
-		return s.transport, nil
+		return s.transport()
 	}
 	switch {
 	case s.Command != "":
@@ -184,7 +236,7 @@ func transportFor(s Server, lookup func(string) (string, bool)) (mcp.Transport, 
 		}
 		return &mcp.StreamableClientTransport{Endpoint: s.URL, HTTPClient: hc}, nil
 	}
-	return nil, fmt.Errorf("MCP server '%s' has no 'command' or 'url' in config", s.Name)
+	return nil, fmt.Errorf("MCP server '%s' has %w", s.Name, errNoEndpoint)
 }
 
 // stdioEnv is upstream _build_safe_env: the safe baseline plus the
@@ -230,10 +282,9 @@ func (h headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func (m *Manager) Close() error {
 	var errs []error
 	for _, c := range m.conns {
-		if err := c.session.Close(); err != nil {
+		if err := c.close(); err != nil {
 			errs = append(errs, fmt.Errorf("close MCP server %s: %w", c.server.Name, err))
 		}
-		c.stop()
 	}
 	return errors.Join(errs...)
 }
@@ -248,7 +299,9 @@ func (m *Manager) Servers() []string {
 }
 
 // Tools returns one registry tool per server tool, in toolset
-// mcp-<server> like upstream. A later duplicate name is dropped.
+// mcp-<server> like upstream, then the server's resource and prompt
+// utilities. A later duplicate name is dropped, so a native tool wins
+// over a utility of the same name.
 func (m *Manager) Tools() []tools.Tool {
 	var out []tools.Tool
 	seen := map[string]bool{}
@@ -269,14 +322,23 @@ func (m *Manager) Tools() []tools.Tool {
 				Toolset:     "mcp-" + c.server.Name,
 				Description: stripTags(desc),
 				Parameters:  NormalizeSchema(t.InputSchema),
-				Handler:     c.handler(t.Name),
+				Handler:     c.handler(t),
 			})
+		}
+		for _, u := range c.utilities() {
+			if seen[u.Name] {
+				m.logger.Warn("MCP utility shadowed by a server tool", "name", u.Name, "server", c.server.Name)
+				continue
+			}
+			seen[u.Name] = true
+			out = append(out, u)
 		}
 	}
 	return out
 }
 
-func (c *conn) handler(tool string) tools.Handler {
+func (c *conn) handler(tool *mcp.Tool) tools.Handler {
+	readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 	return func(ctx context.Context, raw json.RawMessage) (string, error) {
 		args := map[string]any{}
 		if len(bytes.TrimSpace(raw)) > 0 && string(raw) != "null" {
@@ -284,18 +346,24 @@ func (c *conn) handler(tool string) tools.Handler {
 				return "", err
 			}
 		}
-		timeout := c.server.CallTimeout
-		if timeout <= 0 {
-			timeout = DefaultCallTimeout
-		}
-		cctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		res, err := c.session.CallTool(cctx, &mcp.CallToolParams{Name: tool, Arguments: args})
+		var res *mcp.CallToolResult
+		err := c.call(ctx, readOnly, func(ctx context.Context, s *mcp.ClientSession) error {
+			var err error
+			res, err = s.CallTool(ctx, &mcp.CallToolParams{Name: tool.Name, Arguments: args})
+			return err
+		})
 		if err != nil {
-			return "", tools.Error(sanitize("MCP call failed: " + err.Error()))
+			return "", err
 		}
 		return render(res, c.server.Name)
 	}
+}
+
+func (c *conn) callTimeout() time.Duration {
+	if c.server.CallTimeout > 0 {
+		return c.server.CallTimeout
+	}
+	return DefaultCallTimeout
 }
 
 func sanitize(s string) string { return credentialRE.ReplaceAllString(s, "[REDACTED]") }

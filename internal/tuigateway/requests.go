@@ -35,6 +35,11 @@ func (s *Server) finish(req *serverRequest, result json.RawMessage) {
 
 var errNoSession = errors.New("tuigateway: no TUI session in context")
 
+// errDetached is a server request a detached session cannot deliver: the
+// client that would answer it is gone, and waiting for the orphan grace would
+// strand the turn that asked.
+var errDetached = errors.New("tuigateway: the session is detached")
+
 // request sends method to the client that runs the session in ctx and waits
 // for its answer. Cancelling ctx withdraws the request with request.cancel.
 func (s *Server) request(ctx context.Context, method string, params map[string]any, qids []string) (json.RawMessage, error) {
@@ -42,23 +47,36 @@ func (s *Server) request(ctx context.Context, method string, params map[string]a
 	if !ok {
 		return nil, errNoSession
 	}
+	// The detach check and the registration are one step under the session's
+	// lock: detach marks the binding nil under that same lock before it sweeps,
+	// so a request either lands in time to be swept or sees a detached session.
+	ls.mu.Lock()
+	client := ls.conn
+	if client == nil {
+		ls.mu.Unlock()
+		// A dropped client cannot answer, and the session is only parked: refuse
+		// the request now instead of blocking until the reap cancels the turn.
+		return nil, errDetached
+	}
 	req := &serverRequest{
-		id: "srq-" + randomHex(6), method: method, conn: ls.conn,
+		id: "srq-" + randomHex(6), method: method, conn: client,
 		qids: qids, locked: map[string]any{}, done: make(chan json.RawMessage, 1),
 	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
+		ls.mu.Unlock()
 		return nil, errors.New("tuigateway: server closed")
 	}
 	s.requests[req.id] = req
 	s.mu.Unlock()
+	ls.mu.Unlock()
 
 	wire := map[string]any{"session_id": ls.id}
 	for k, v := range params {
 		wire[k] = v
 	}
-	ls.conn.write(map[string]any{"jsonrpc": "2.0", "id": req.id, "method": method, "params": wire})
+	client.write(map[string]any{"jsonrpc": "2.0", "id": req.id, "method": method, "params": wire})
 
 	select {
 	case res := <-req.done:
@@ -70,14 +88,16 @@ func (s *Server) request(ctx context.Context, method string, params map[string]a
 		s.mu.Lock()
 		s.finish(req, nil)
 		s.mu.Unlock()
-		ls.conn.event("request.cancel", ls.id, map[string]any{"id": req.id, "method": method, "reason": "cancelled"})
+		if c := ls.connection(); c != nil {
+			c.event("request.cancel", ls.id, map[string]any{"id": req.id, "method": method, "reason": "cancelled"})
+		}
 		return nil, ctx.Err()
 	}
 }
 
 // resolveResponse settles a request from the client's response frame. An
 // error response means the client cannot answer it.
-func (s *Server) resolveResponse(f frame) {
+func (s *Server) resolveResponse(c *conn, f frame) {
 	var id string
 	if err := json.Unmarshal(f.ID, &id); err != nil {
 		return
@@ -85,7 +105,9 @@ func (s *Server) resolveResponse(f frame) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	req, ok := s.requests[id]
-	if !ok {
+	if !ok || req.conn != c {
+		// Another connection cannot settle this client's request, even by
+		// guessing its id.
 		return
 	}
 	switch {
@@ -99,15 +121,22 @@ func (s *Server) resolveResponse(f frame) {
 }
 
 // Approve asks the client running the turn in ctx. Permanent approval is not
-// offered, as in the rest of this port.
+// offered, as in the rest of this port. A smart deny reduces the offer to
+// once/deny: the guardian already judged the command dangerous, so a scope the
+// gate would discard must never be presented.
 func (s *Server) Approve(ctx context.Context, r approval.Request) (approval.Choice, error) {
-	res, err := s.request(ctx, "approval", map[string]any{
+	params := map[string]any{
 		"request_id":      randomHex(6),
 		"command":         r.Command,
 		"description":     r.Description,
 		"choices":         []string{"once", "session", "deny"},
 		"allow_permanent": false,
-	}, nil)
+	}
+	if r.SmartDenied {
+		params["choices"] = []string{"once", "deny"}
+		params["smart_denied"] = true
+	}
+	res, err := s.request(ctx, "approval", params, nil)
 	if err != nil {
 		return approval.Deny, err
 	}
@@ -115,6 +144,10 @@ func (s *Server) Approve(ctx context.Context, r approval.Request) (approval.Choi
 		Choice string `json:"choice"`
 	}
 	_ = json.Unmarshal(res, &answer)
+	if r.SmartDenied && answer.Choice != "once" {
+		// An answer the offer did not include resolves as a denial.
+		return approval.Deny, nil
+	}
 	switch answer.Choice {
 	case "once":
 		return approval.Once, nil
@@ -169,14 +202,14 @@ func (s *Server) Ask(ctx context.Context, qs []clarify.Question) (clarify.Reply,
 // lockClarify records one answer of an open clarify batch. The lock that
 // leaves nothing remaining resolves the request; a lock on a request that
 // already ended is "expired", not an error.
-func (s *Server) lockClarify(requestID, qid string, answer any) (any, *rpcError) {
+func (s *Server) lockClarify(c *conn, requestID, qid string, answer any) (any, *rpcError) {
 	if requestID == "" || qid == "" {
-		return nil, &rpcError{codeBadRequest, "request_id and question_id required"}
+		return nil, &rpcError{Code: codeBadRequest, Message: "request_id and question_id required"}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	req, ok := s.requests[requestID]
-	if !ok {
+	if !ok || req.conn != c {
 		return map[string]any{"status": "expired"}, nil
 	}
 	known := false
@@ -184,7 +217,7 @@ func (s *Server) lockClarify(requestID, qid string, answer any) (any, *rpcError)
 		known = known || id == qid
 	}
 	if req.method != "clarify" || !known {
-		return nil, &rpcError{codeBadRequest, fmt.Sprintf("unknown question %q for request %s", qid, requestID)}
+		return nil, &rpcError{Code: codeBadRequest, Message: fmt.Sprintf("unknown question %q for request %s", qid, requestID)}
 	}
 	req.locked[qid] = normalizeAnswer(answer)
 	remaining := []string{}

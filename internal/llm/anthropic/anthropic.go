@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -110,7 +111,12 @@ func convertError(ctx context.Context, err error) error {
 	}
 	var apiErr *sdk.Error
 	if errors.As(err, &apiErr) {
-		return &llm.APIError{Provider: "anthropic", Status: apiErr.StatusCode, Body: apiErr.Error()}
+		// The limiter's own wait, when it sends one, beats the local backoff.
+		var after time.Duration
+		if apiErr.Response != nil {
+			after, _ = llm.ParseRetryAfter(apiErr.Response.Header.Get("Retry-After"))
+		}
+		return &llm.APIError{Provider: "anthropic", Status: apiErr.StatusCode, Body: apiErr.Error(), RetryAfter: after}
 	}
 	return fmt.Errorf("anthropic: %w: %w", llm.ErrStreamInterrupted, err)
 }
@@ -138,7 +144,10 @@ func toResponse(msg sdk.Message) llm.Response {
 	case sdk.StopReasonMaxTokens:
 		stop = llm.StopMaxTokens
 	}
-	if len(out.ToolCalls) > 0 {
+	// A max_tokens stop wins over the tool_use blocks it interrupted: an input
+	// block cut by the output limit can be the prefix of an argument the model
+	// never finished, so the loop must see a truncation, not a call to run.
+	if stop != llm.StopMaxTokens && len(out.ToolCalls) > 0 {
 		stop = llm.StopToolUse
 	}
 	return llm.Response{

@@ -48,9 +48,31 @@ Rust's real advantages are memory safety without a GC, a richer type system,
 and finer control over performance. They matter less for a glue-heavy,
 network-bound agent than shipping speed and simplicity do.
 
+## Install
+
+```sh
+# Linux and macOS
+curl -fsSL https://raw.githubusercontent.com/umi008/hermes-agent-go/main/scripts/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/umi008/hermes-agent-go/main/scripts/install.ps1 | iex
+```
+
+```sh
+# From source
+go install github.com/umi008/hermes-agent-go/cmd/hermes-go@latest
+```
+
+Then set a provider key, run `hermes-go doctor`, and start with
+`hermes-go chat`. [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) walks
+through it, including providers and where files live.
+
 ## Usage
 
 ```sh
+hermes-go doctor                     # check home, config, provider and optional tools
 hermes-go chat                       # interactive REPL; -q "..." for one message
 hermes-go serve --addr 127.0.0.1:8787  # OpenAI-compatible API
 hermes-go cron add --schedule 30m --prompt "status report"
@@ -64,6 +86,7 @@ With Docker (the home lives in the `/data` volume; `serve` must listen on
 `0.0.0.0` inside the container, which requires an API key):
 
 ```sh
+docker run --rm -it -v hermes:/data ghcr.io/umi008/hermes-go chat   # published from v0.2.0
 docker build -t hermes-go .
 docker run --rm -it -v hermes:/data hermes-go chat
 docker run --rm -p 8787:8787 -v hermes:/data -e HERMES_API_KEY=... hermes-go serve --addr 0.0.0.0:8787
@@ -74,7 +97,8 @@ Every command reads the Hermes home (`HERMES_HOME`, or `-p <profile>`) and its
 
 ## Docs
 
-- [docs/PROGRESS.md](docs/PROGRESS.md): start here.
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): install and first chat.
+- [docs/PROGRESS.md](docs/PROGRESS.md): project status, start here for contributing.
 - [docs/ROADMAP.md](docs/ROADMAP.md): milestones.
 - [docs/PARITY.md](docs/PARITY.md): what is in and out of scope.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the upstream architecture.

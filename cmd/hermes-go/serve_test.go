@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -61,7 +62,7 @@ func apiTestServerWith(t *testing.T, f *fakeEnv, key string, logger *slog.Logger
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.close)
-	srv := httptest.NewServer(newAPIServer(rt, "127.0.0.1:0", key, logger).Handler())
+	srv := httptest.NewServer(newAPIServer(rt, "127.0.0.1:0", key, logger, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -564,5 +565,297 @@ func TestServeFlags(t *testing.T) {
 	if f.addr != "127.0.0.1:9" || f.profile != "work" || f.model != "big" || f.provider != "custom" ||
 		f.toolsets != "web" || !f.verbose {
 		t.Errorf("parsed flags = %+v", f)
+	}
+}
+
+// TestAPIResponsesChainContinuesSession runs /v1/responses over the real
+// runtime: a chained request replays the stored transcript to the model,
+// continues the same stored session and layers its instructions on the
+// system prompt for that turn only.
+func TestAPIResponsesChainContinuesSession(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		n := len(bodies)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"reply `+strconv.Itoa(n)+`"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	resp := apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"alpha"}`)
+	var first struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&first); err != nil || first.Status != "completed" {
+		t.Fatalf("first response %+v %v", first, err)
+	}
+	sid := resp.Header.Get("X-Hermes-Session-Id")
+	resp = apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"beta","instructions":"be terse","previous_response_id":"`+first.ID+`"}`)
+	if resp.StatusCode != http.StatusOK || sid == "" || resp.Header.Get("X-Hermes-Session-Id") != sid {
+		t.Fatalf("chained status %d session %q, want %q", resp.StatusCode, resp.Header.Get("X-Hermes-Session-Id"), sid)
+	}
+	mu.Lock()
+	second := bodies[1]
+	mu.Unlock()
+	for _, want := range []string{`"alpha"`, `"reply 1"`, `"beta"`, "be terse"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("chained model request lacks %s: %s", want, second)
+		}
+	}
+	if strings.Contains(bodies[0], "be terse") {
+		t.Error("instructions leaked into the first turn")
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, sid); got != "alpha|reply 1|beta|reply 2" {
+		t.Errorf("session messages = %q", got)
+	}
+}
+
+// TestAPIResponsesToolItems checks the runtime hands the turn's tool calls
+// to /v1/responses: output items without streaming, item events with it.
+func TestAPIResponsesToolItems(t *testing.T) {
+	model, _ := toolCallModel(t, "no_such_tool", `{"a":1}`)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+	resp := apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"go"}`)
+	raw, _ := io.ReadAll(resp.Body)
+	for _, want := range []string{`"type":"function_call","status":"completed","name":"no_such_tool","arguments":"{\"a\":1}","call_id":"c1"`,
+		`"type":"function_call_output","status":"completed","call_id":"c1"`, `"text":"done"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("response lacks %s: %s", want, raw)
+		}
+	}
+
+	model, _ = toolCallModel(t, "no_such_tool", `{"a":1}`)
+	f = newHome(t, modelConfig(model.URL))
+	srv = apiTestServer(t, f, "")
+	resp = apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"go","stream":true}`)
+	raw, _ = io.ReadAll(resp.Body)
+	var events []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if name, ok := strings.CutPrefix(line, "event: "); ok {
+			events = append(events, name)
+		}
+	}
+	want := "response.created,response.output_item.added,response.output_item.done,response.output_item.added,response.output_item.done," +
+		"response.output_item.added,response.output_text.delta,response.output_text.done,response.output_item.done,response.completed"
+	if strings.Join(events, ",") != want || !strings.Contains(string(raw), `"name":"no_such_tool","call_id":"c1"`) {
+		t.Fatalf("events = %v\n%s", events, raw)
+	}
+}
+
+func TestMaxConcurrentRuns(t *testing.T) {
+	for yaml, want := range map[string]int{
+		"": 10,
+		"gateway:\n  api_server:\n    max_concurrent_runs: 3\n":  3,
+		"gateway:\n  api_server:\n    max_concurrent_runs: 0\n":  0,
+		"gateway:\n  api_server:\n    max_concurrent_runs: -4\n": 0,
+	} {
+		raw, err := config.Parse([]byte(yaml))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := maxConcurrentRuns(config.FromMap(raw)); got != want {
+			t.Errorf("%q: %d, want %d", yaml, got, want)
+		}
+	}
+}
+
+// runOver posts a run, waits for its event stream to close and returns the
+// events and the final status.
+func runOver(t *testing.T, srv *httptest.Server, body string) (events, status string) {
+	t.Helper()
+	resp := apiDo(t, srv, "POST", "/v1/runs", "", body)
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /v1/runs: %d %v", resp.StatusCode, err)
+	}
+	raw, _ := io.ReadAll(apiDo(t, srv, "GET", "/v1/runs/"+accepted.RunID+"/events", "", "").Body)
+	st, _ := io.ReadAll(apiDo(t, srv, "GET", "/v1/runs/"+accepted.RunID, "", "").Body)
+	return string(raw), string(st)
+}
+
+// TestAPIRunsResumeSession checks a run with session_id replays that stored
+// session and reports the served runtime.
+func TestAPIRunsResumeSession(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		n := len(bodies)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"reply `+strconv.Itoa(n)+`"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	events, status := runOver(t, srv, `{"input":"alpha","session_id":"s-run"}`)
+	if !strings.Contains(events, `"event":"message.delta"`) || !strings.Contains(events, `"event":"run.completed"`) {
+		t.Fatalf("events %s", events)
+	}
+	for _, want := range []string{`"status":"completed"`, `"session_id":"s-run"`, `"output":"reply 1"`,
+		`"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"cache_read_tokens":0,"cache_write_tokens":0}`,
+		`"runtime":{"provider":"custom","model":"tiny","route_source":"global"}`} {
+		if !strings.Contains(status, want) {
+			t.Errorf("status lacks %s: %s", want, status)
+		}
+	}
+	runOver(t, srv, `{"input":"beta","session_id":"s-run"}`)
+	mu.Lock()
+	second := bodies[1]
+	mu.Unlock()
+	for _, want := range []string{`"alpha"`, `"reply 1"`, `"beta"`} {
+		if !strings.Contains(second, want) {
+			t.Errorf("resumed model request lacks %s: %s", want, second)
+		}
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, "s-run"); got != "alpha|reply 1|beta|reply 2" {
+		t.Errorf("session messages = %q", got)
+	}
+}
+
+// TestAPIRunsToolEvents checks the runtime's tool calls reach the run stream.
+func TestAPIRunsToolEvents(t *testing.T) {
+	model, _ := toolCallModel(t, "no_such_tool", `{"query":"q"}`)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+	events, _ := runOver(t, srv, `{"input":"go"}`)
+	for _, want := range []string{`"event":"tool.started","run_id"`, `"tool":"no_such_tool","preview":"q","tool_call_id":"c1"`,
+		`"event":"tool.completed"`, `"event":"run.completed"`} {
+		if !strings.Contains(events, want) {
+			t.Errorf("events lack %s: %s", want, events)
+		}
+	}
+}
+
+// TestAPISessionsReadTheRuntimeStore checks /api/sessions serves the same
+// state.db the agent turns write.
+func TestAPISessionsReadTheRuntimeStore(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	srv := apiTestServer(t, newHome(t, modelConfig(model.URL)), "")
+	runOver(t, srv, `{"input":"ping","session_id":"s-api"}`)
+
+	list, _ := io.ReadAll(apiDo(t, srv, "GET", "/api/sessions", "", "").Body)
+	if !strings.Contains(string(list), `"id":"s-api"`) || !strings.Contains(string(list), `"preview":"ping"`) {
+		t.Fatalf("list = %s", list)
+	}
+	msgs, _ := io.ReadAll(apiDo(t, srv, "GET", "/api/sessions/s-api/messages?order=oldest&limit=10", "", "").Body)
+	if !strings.Contains(string(msgs), `"content":"ping"`) || !strings.Contains(string(msgs), `"content":"pong"`) {
+		t.Fatalf("messages = %s", msgs)
+	}
+}
+
+// TestAPISessionChatTurn checks /api/sessions/{id}/chat runs a real turn over
+// the stored session: the transcript seeds it, the reply and the served
+// runtime come back, and the next turn replays the conversation.
+func TestAPISessionChatTurn(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	created := apiDo(t, srv, "POST", "/api/sessions", "", `{"id":"s-chat"}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create session = %d", created.StatusCode)
+	}
+	resp := apiDo(t, srv, "POST", "/api/sessions/s-chat/chat", "", `{"message":"ping"}`)
+	body, _ := io.ReadAll(resp.Body)
+	want := `{"object":"hermes.session.chat.completion","status":"completed","session_id":"s-chat",` +
+		`"message":{"role":"assistant","content":"pong"},` +
+		`"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"cache_read_tokens":0,"cache_write_tokens":0},` +
+		`"runtime":{"provider":"custom","model":"tiny","route_source":"global"}}`
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != want {
+		t.Fatalf("chat = %d %s", resp.StatusCode, body)
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, "s-chat"); got != "ping|pong" {
+		t.Fatalf("stored turn = %q", got)
+	}
+
+	// The next turn replays the stored conversation and appends to it.
+	second := apiDo(t, srv, "POST", "/api/sessions/s-chat/chat", "", `{"message":"again"}`)
+	if _, err := io.Copy(io.Discard, second.Body); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	request := bodies[len(bodies)-1]
+	mu.Unlock()
+	for _, want := range []string{`"ping"`, `"pong"`, `"again"`} {
+		if !strings.Contains(request, want) {
+			t.Errorf("second turn lacks %s: %s", want, request)
+		}
+	}
+	if got := activeContents(t, st, "s-chat"); got != "ping|pong|again|pong" {
+		t.Errorf("stored turns = %q", got)
+	}
+}
+
+// TestAPISessionChatModelLock checks a locked session model reaches the
+// provider on this turn and on the next one, which names no model.
+func TestAPISessionChatModelLock(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	created := apiDo(t, srv, "POST", "/api/sessions", "", `{"id":"s-lock"}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create session = %d", created.StatusCode)
+	}
+	locked := apiDo(t, srv, "POST", "/api/sessions/s-lock/chat", "",
+		`{"message":"hi","require_model_lock":true,"model":"locked-model"}`)
+	body, _ := io.ReadAll(locked.Body)
+	if locked.StatusCode != http.StatusOK ||
+		!strings.Contains(string(body), `"model":"locked-model"`) ||
+		!strings.Contains(string(body), `"model_lock":"confirmed"`) {
+		t.Fatalf("locked chat = %d %s", locked.StatusCode, body)
+	}
+	plain := apiDo(t, srv, "POST", "/api/sessions/s-lock/chat", "", `{"message":"again"}`)
+	plainBody, _ := io.ReadAll(plain.Body)
+	if plain.StatusCode != http.StatusOK || !strings.Contains(string(plainBody), `"route_source":"session_model_lock"`) {
+		t.Fatalf("reused lock = %d %s", plain.StatusCode, plainBody)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for i, request := range bodies {
+		if !strings.Contains(request, `"model":"locked-model"`) {
+			t.Errorf("turn %d did not use the locked model: %s", i+1, request)
+		}
 	}
 }

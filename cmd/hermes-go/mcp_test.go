@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,11 @@ func TestMain(m *testing.M) {
 		}
 		_, _ = f.Write(data)
 		_ = f.Close()
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "fake-hook-context" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		_, _ = os.Stdout.WriteString(`{"context":"PLUGIN NOTE"}`)
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "fake-hook" {
@@ -96,8 +102,8 @@ func TestChatCallsMCPTool(t *testing.T) {
 func TestMCPServersConfig(t *testing.T) {
 	cfg := config.FromMap(map[string]any{"mcp_servers": map[string]any{
 		"b": map[string]any{"url": "http://x", "headers": map[string]any{"A": "1"}, "transport": "SSE", "timeout": 2.5, "connect_timeout": "3",
-			"tools": map[string]any{"include": "one", "exclude": []any{"two"}}},
-		"a":    map[string]any{"command": "srv", "args": []any{"--x", 1}, "env": map[string]any{"K": "v"}, "cwd": "/w", "tools": map[string]any{"include": []any{}}},
+			"tools": map[string]any{"include": "one", "exclude": []any{"two"}, "prompts": false, "resources": "maybe"}},
+		"a":    map[string]any{"command": "srv", "args": []any{"--x", 1}, "env": map[string]any{"K": "v"}, "cwd": "/w", "tools": map[string]any{"include": []any{}, "resources": "off"}},
 		"off":  map[string]any{"command": "srv", "enabled": "no"},
 		"bad":  "nope",
 		"none": map[string]any{"command": "srv", "tools": map[string]any{"include": nil}},
@@ -117,6 +123,15 @@ func TestMCPServersConfig(t *testing.T) {
 	}
 	if got[2].Include != nil {
 		t.Error("null include must keep every tool")
+	}
+	flag := func(p *bool) string {
+		if p == nil {
+			return "unset"
+		}
+		return strconv.FormatBool(*p)
+	}
+	if got := flag(a.Resources) + " " + flag(a.Prompts) + " " + flag(b.Resources) + " " + flag(b.Prompts) + " " + flag(got[2].Resources); got != "false unset true false unset" {
+		t.Errorf("resources/prompts toggles = %s", got)
 	}
 	safe := func(k string) (string, bool) { return "1", k == "HERMES_SAFE_MODE" }
 	if got := mcpServers(cfg, safe, slog.New(slog.DiscardHandler)); got != nil {

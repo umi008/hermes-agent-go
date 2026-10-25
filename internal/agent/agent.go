@@ -5,10 +5,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +45,9 @@ const (
 	EventUsage
 	// EventCompress reports a context compaction; Err is set when it failed.
 	EventCompress
+	// EventFallback carries upstream's notice when the agent switches to a
+	// fallback model or restores the primary.
+	EventFallback
 )
 
 // MaxCompressions caps compactions per Run, so a summary that does not
@@ -72,9 +77,18 @@ type Event struct {
 
 // Options configures an Agent.
 type Options struct {
-	Client    llm.Client
-	Tools     ToolExecutor
-	Model     string
+	Client llm.Client
+	Tools  ToolExecutor
+	Model  string
+	// Provider and BaseURL name the primary backend in fallback notices and
+	// let the chain skip an entry that resolves to it.
+	Provider string
+	BaseURL  string
+	// Fallbacks are tried in order when the primary is exhausted, as
+	// upstream fallback_providers. Fallback is turn-scoped.
+	Fallbacks []Route
+	// Now is the clock for the rate-limit cooldown; nil uses time.Now.
+	Now       func() time.Time
 	System    []string
 	MaxTokens int
 	CacheTTL  string
@@ -83,8 +97,12 @@ type Options struct {
 	// MaxAttempts per model call; zero means DefaultMaxAttempts.
 	MaxAttempts int
 	// Backoff returns the wait before retry attempt n (1-based); nil uses
-	// upstream jittered exponential backoff.
+	// upstream jittered exponential backoff. A provider's own Retry-After wins
+	// over it.
 	Backoff func(attempt int) time.Duration
+	// Sleep waits before a retry; nil sleeps for real. Tests replace it to
+	// observe the honoured wait without waiting.
+	Sleep func(ctx context.Context, d time.Duration) error
 	// Steer delivers user messages injected between iterations.
 	Steer   <-chan string
 	OnEvent func(Event)
@@ -93,7 +111,12 @@ type Options struct {
 	// Compressor, when set, compacts the history before a call that would
 	// cross its threshold. Compacted history is not re-sent to OnMessage.
 	Compressor Compressor
-	Logger     *slog.Logger
+	// Hooks, when set, observe each turn; see TurnHooks.
+	Hooks  TurnHooks
+	Logger *slog.Logger
+	// History seeds the conversation with prior messages, as an API client
+	// replaying its transcript. They are copied and never sent to OnMessage.
+	History []llm.Message
 }
 
 // Result summarizes one Run.
@@ -111,6 +134,10 @@ type Agent struct {
 	// lastPrompt is the prompt size the provider reported for the last call.
 	lastPrompt int
 	noted      bool
+	fallback   fallbackState
+	// injected maps a user message sent with pre_llm_call context to the
+	// text the user typed, so Rewind hands back what was typed.
+	injected map[string]string
 }
 
 // New builds an agent.
@@ -118,13 +145,33 @@ func New(o Options) *Agent {
 	if o.MaxAttempts <= 0 {
 		o.MaxAttempts = DefaultMaxAttempts
 	}
+	if o.Sleep == nil {
+		o.Sleep = sleep
+	}
 	if o.Backoff == nil {
 		o.Backoff = JitteredBackoff
 	}
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Agent{opts: o}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	a := &Agent{opts: o, history: append([]llm.Message(nil), o.History...)}
+	a.opts.History = nil
+	a.fallback.active = a.primary()
+	return a
+}
+
+// Served returns the provider and model serving the conversation: the active
+// fallback's after a switch, until the primary is restored.
+func (a *Agent) Served() (provider, model string) {
+	return a.fallback.active.Provider, a.fallback.active.Model
+}
+
+// Outcome maps a Run result to upstream's turn exit flags and reason.
+func (a *Agent) Outcome(ctx context.Context, res Result, err error) TurnEnd {
+	return turnEnd(ctx, res, err, a.opts.MaxTurns)
 }
 
 // History returns a copy of the conversation so far.
@@ -150,13 +197,53 @@ func (a *Agent) emit(e Event) {
 // Run sends one user message and loops until the model answers without
 // tool calls, the budget runs out, or ctx is done.
 func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
-	a.record(llm.Message{Role: llm.RoleUser, Content: input})
+	a.restorePrimary()
+	msg := llm.Message{Role: llm.RoleUser, Content: input}
+	h := a.opts.Hooks
+	if h == nil {
+		a.record(msg)
+		return a.loop(ctx)
+	}
+	turn := TurnInfo{UserMessage: input, FirstTurn: len(a.history) == 0, Model: a.fallback.active.Model}
+	if turn.FirstTurn {
+		h.SessionStart(ctx, turn.Model)
+	}
+	turn.History = append(a.History(), msg)
+	sent := msg
+	if extra := h.PreLLMCall(ctx, turn); extra != "" {
+		sent.Content += "\n\n" + extra
+		if a.injected == nil {
+			a.injected = map[string]string{}
+		}
+		a.injected[sent.Content] = input
+	}
+	a.history = append(a.history, sent)
+	if a.opts.OnMessage != nil {
+		a.opts.OnMessage(msg)
+	}
+	res, err := a.loop(ctx)
+	turn.History, turn.Model = a.History(), a.fallback.active.Model
+	h.PostLLMCall(ctx, turn, res.Text)
+	h.TurnEnd(ctx, turn, turnEnd(ctx, res, err, a.opts.MaxTurns))
+	return res, err
+}
+
+// loop calls the model and runs tools until the turn ends.
+func (a *Agent) loop(ctx context.Context) (Result, error) {
 	var res Result
 	var specs []llm.ToolSpec
 	if a.opts.Tools != nil {
 		specs = a.opts.Tools.Specs()
 	}
 	compressions := 0
+	// parts holds the fragments of an answer the output limit keeps cutting.
+	var parts []string
+	// continuations counts the rounds spent asking the model to redo an answer
+	// the output limit cut or the guard refused. It is an explicit attempt
+	// counter, not the number of fragments kept: a cut that carried no text
+	// still spends one, so a stream that keeps failing before writing anything
+	// cannot spin here forever.
+	continuations := 0
 	for {
 		if a.opts.MaxTurns > 0 && res.Turns >= a.opts.MaxTurns {
 			return res, ErrMaxTurns
@@ -178,11 +265,61 @@ func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
 		a.record(resp.Message)
 
 		calls := resp.Message.ToolCalls
-		if len(calls) > 0 {
-			a.record(a.runTools(ctx, calls)...)
+		// A response cut by the output limit is continued, not answered: the
+		// model was still writing, so the fragment stays in the transcript and
+		// the model is asked to carry on exactly where it stopped.
+		cut := resp.StopReason == llm.StopMaxTokens
+		// A call cut mid-argument is never executed, because the prefix alone
+		// can be a complete command the model never finished asking for. It is
+		// still answered below: a provider rejects a history whose assistant
+		// tool_calls have no matching tool rows.
+		cutCalls := cut && len(calls) > 0
+		refused := false
+		switch {
+		case cutCalls:
+			a.record(a.droppedToolResults(calls)...)
+		case len(calls) > 0:
+			rows, some := a.runToolCalls(ctx, calls)
+			a.record(rows...)
+			refused = some
+		}
+		if cut {
+			if resp.Message.Content != "" {
+				parts = append(parts, resp.Message.Content)
+			}
+			if continuations >= MaxLengthContinuations {
+				// Out of continuations: keep the fragments that did arrive and
+				// stop asking, rather than loop on an answer the model cannot
+				// finish.
+				if len(parts) > 0 {
+					res.Text = strings.Join(parts, "")
+				}
+				return res, nil
+			}
+			continuations++
+			nudge := lengthContinuationNudge
+			if cutCalls {
+				nudge = droppedToolsNudge(calls)
+			}
+			a.record(llm.Message{Role: llm.RoleUser, Content: nudge})
+			continue
+		}
+		// A refused round spends a continuation from the same budget as a
+		// truncated one: a model that re-sends the same unparseable call is
+		// asked a bounded number of times, then the turn fails instead of
+		// reporting a completed answer it never produced.
+		if refused {
+			if continuations >= MaxLengthContinuations {
+				return res, fmt.Errorf("%w (refused %d times)", ErrUnusableToolCalls, continuations)
+			}
+			continuations++
 		}
 		steered := a.drainSteer()
 		if len(calls) == 0 && !steered {
+			if len(parts) > 0 {
+				parts = append(parts, resp.Message.Content)
+				res.Text = strings.Join(parts, "")
+			}
 			return res, nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -242,7 +379,6 @@ func (a *Agent) drainSteer() bool {
 
 func (a *Agent) call(ctx context.Context, specs []llm.ToolSpec) (llm.Response, error) {
 	req := llm.Request{
-		Model:     a.opts.Model,
 		System:    a.opts.System,
 		Messages:  a.history,
 		Tools:     specs,
@@ -258,21 +394,131 @@ func (a *Agent) call(ctx context.Context, specs []llm.ToolSpec) (llm.Response, e
 		}
 	}
 	for attempt := 1; ; attempt++ {
-		resp, err := a.opts.Client.Stream(ctx, req, onEvent)
+		req.Model = a.fallback.active.Model
+		resp, err := a.fallback.active.Client.Stream(ctx, req, onEvent)
 		if err == nil {
 			return resp, nil
+		}
+		// Upstream switches at once on rate limits, billing, auth and a
+		// missing model, and after the retries on transient failures; a
+		// switch restarts the retry budget on the new backend.
+		if f, ok := classifyFailover(err); ok && ctx.Err() == nil && (f.eager || attempt >= a.opts.MaxAttempts) && a.activateFallback(f) {
+			attempt = 0
+			continue
 		}
 		if attempt >= a.opts.MaxAttempts || !llm.IsRetryable(err) {
 			return llm.Response{}, fmt.Errorf("agent: model call: %w", err)
 		}
+		// A provider that says how long to wait is obeyed: its window is the
+		// one we know about, and the local backoff only fills the silence.
 		wait := a.opts.Backoff(attempt)
+		if after, ok := retryAfter(err); ok {
+			wait = after
+		}
 		a.opts.Logger.Warn("retrying model call", "attempt", attempt, "wait", wait, "err", err)
 		a.emit(Event{Kind: EventRetry, Attempt: attempt, Err: err})
-		if err := sleep(ctx, wait); err != nil {
+		if err := a.opts.Sleep(ctx, wait); err != nil {
 			return llm.Response{}, err
 		}
 	}
 }
+
+const (
+	// MaxLengthContinuations is upstream's cap on output-limit continuations
+	// before the partial answer is kept: past it each attempt only grows the
+	// prompt without finishing the answer.
+	MaxLengthContinuations = 4
+	// lengthContinuationNudge is upstream's continuation prompt for a response
+	// truncated by the output length limit.
+	lengthContinuationNudge = "[System: Your previous response was truncated by the output length limit. " +
+		"Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
+	// droppedToolsNudgePrefix opens upstream's continuation prompt for a stream
+	// cut in the middle of a tool call's arguments.
+	droppedToolsNudgePrefix = "[System: Your previous tool call "
+	// smallerCallsAsk closes the tool result for a call the stream cut before
+	// its arguments were complete, so the model does not answer the refusal
+	// with the same oversized call.
+	smallerCallsAsk = " Re-send it as smaller calls whose arguments stay under ~8K tokens."
+)
+
+// droppedToolsNudge is upstream's prompt for a call cut mid-arguments: it says
+// the cut was transport, not capability, and asks for smaller calls instead of
+// a byte-identical retry.
+func droppedToolsNudge(calls []llm.ToolCall) string {
+	names := make([]string, 0, min(3, len(calls)))
+	for _, call := range calls[:min(3, len(calls))] {
+		names = append(names, call.Name)
+	}
+	return droppedToolsNudgePrefix + "(" + strings.Join(names, ", ") + ") was too large and the stream timed out before it " +
+		"could be delivered. Do NOT retry the same tool call with the same large content. Instead, break the content " +
+		"into multiple smaller tool calls (e.g. use multiple patch calls or write smaller files). Each tool call's " +
+		"arguments must be under ~8K tokens to avoid stream timeouts. The cut was a transport interruption, not a " +
+		"capability change — your tools remain fully available.]"
+}
+
+// retryAfter reads a provider's own wait off a rate-limit or transient error.
+func retryAfter(err error) (time.Duration, bool) {
+	var apiErr *llm.APIError
+	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter, true
+	}
+	return 0, false
+}
+
+// droppedToolResults answers calls the stream cut before their arguments were
+// complete. Nothing runs, but every call id must still be answered: a provider
+// rejects a request whose assistant tool_calls are not followed by matching
+// tool rows, and the model has to learn that its call did not execute.
+func (a *Agent) droppedToolResults(calls []llm.ToolCall) []llm.Message {
+	out := make([]llm.Message, len(calls))
+	for i := range calls {
+		call := &calls[i]
+		a.emit(Event{Kind: EventToolStart, ToolCall: call})
+		out[i] = llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, IsError: true,
+			Content: fmt.Sprintf("tool call %q was not executed: the stream was cut while its arguments were being written, so the call never finished.", call.Name) + smallerCallsAsk}
+		a.emit(Event{Kind: EventToolResult, ToolCall: call, Text: out[i].Content, IsError: true})
+	}
+	return out
+}
+
+// runToolCalls validates arguments before anything runs: a call whose arguments
+// are not JSON is refused as a tool result naming the reason, so the model can
+// re-send a well-formed call instead of a tool acting on a prefix. It reports
+// whether any call was refused, because such a round must spend a continuation.
+func (a *Agent) runToolCalls(ctx context.Context, calls []llm.ToolCall) ([]llm.Message, bool) {
+	out := make([]llm.Message, len(calls))
+	valid := make([]int, 0, len(calls))
+	refused := false
+	for i := range calls {
+		call := &calls[i]
+		if len(call.Arguments) > 0 && !json.Valid(call.Arguments) {
+			refused = true
+			a.emit(Event{Kind: EventToolStart, ToolCall: call})
+			out[i] = llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, IsError: true,
+				Content: fmt.Sprintf("tool call %q was not executed: its arguments are not valid JSON, so the stream was cut before the call finished.", call.Name) + smallerCallsAsk}
+			a.emit(Event{Kind: EventToolResult, ToolCall: call, Text: out[i].Content, IsError: true})
+			continue
+		}
+		valid = append(valid, i)
+	}
+	if len(valid) == 0 {
+		return out, refused
+	}
+	subset := make([]llm.ToolCall, len(valid))
+	for j, i := range valid {
+		subset[j] = calls[i]
+	}
+	results := a.runTools(ctx, subset)
+	for j, i := range valid {
+		out[i] = results[j]
+	}
+	return out, refused
+}
+
+// ErrUnusableToolCalls reports a turn that ended because the model kept sending
+// tool calls whose arguments were not JSON. Nothing ran for them, and the turn
+// is not a completed answer, so it must not be reported as one.
+var ErrUnusableToolCalls = errors.New("agent: the model kept sending unusable tool calls")
 
 // runTools executes calls concurrently and returns results in call order.
 func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall) []llm.Message {
@@ -337,7 +583,7 @@ func JitteredBackoff(attempt int) time.Duration {
 
 // Reset clears the conversation for a new session.
 func (a *Agent) Reset() {
-	a.history, a.lastPrompt, a.noted = nil, 0, false
+	a.history, a.lastPrompt, a.noted, a.injected = nil, 0, false, nil
 }
 
 // Rewind drops the last n user turns (clamped to the oldest), as upstream
@@ -356,6 +602,9 @@ func (a *Agent) Rewind(n int) (text string, removed int, ok bool) {
 	}
 	cut := users[max(len(users)-max(n, 1), 0)]
 	text, removed = a.history[cut].Content, len(a.history)-cut
+	if typed, ok := a.injected[text]; ok {
+		text = typed
+	}
 	a.history = a.history[:cut:cut]
 	a.lastPrompt = 0
 	return text, removed, true

@@ -74,8 +74,8 @@ compatibility with the Hermes home where practical.
 - **V4 Extensibility (2026-10-24, merged to `main`).** Feature doc:
   [odd/tasks/v4-extensibility.md](../odd/tasks/v4-extensibility.md).
   - `internal/skills`: SKILL.md discovery under `<hermes>/skills` and `skills.external_dirs`, `skills_list`, `skill_view`, and the prompt index, matched to upstream output on a fixture.
-  - `internal/tools/mcpclient`: MCP over stdio, streamable HTTP and SSE on the official Go SDK; tools register as `mcp__<server>__<tool>` in toolset `mcp-<server>`, with upstream schema normalization, include/exclude filters, timeouts, a safe stdio env and credential redaction.
-  - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
+  - `internal/tools/mcpclient`: MCP over stdio, streamable HTTP and SSE on the official Go SDK; tools register as `mcp__<server>__<tool>` in toolset `mcp-<server>`, with upstream schema normalization, include/exclude filters, timeouts, a safe stdio env and credential redaction. `list_resources`, `read_resource`, `list_prompts` and `get_prompt` register per server when it advertises the family (`tools.resources`/`tools.prompts` turn them off); a dropped transport reconnects with jittered backoff and parks after five failures.
+  - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks, plus the lifecycle events `pre_llm_call` (its `context` rides the user message sent to the model), `post_llm_call`, `on_session_start`, per-turn `on_session_end`, `subagent_start` and `subagent_stop`, with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
   - `cmd/hermes-go`: `skills.*`, `mcp_servers` and `hooks:` config; `chat --accept-hooks`.
 
 - **V5 Interfaces (2026-10-24, on `dev`).** Feature doc:
@@ -95,19 +95,37 @@ compatibility with the Hermes home where practical.
   - `.github/workflows/release.yml`: a `v*` tag runs the tests, then GoReleaser, and publishes a GitHub release.
   - `Dockerfile`: distroless static, nonroot, home in the `/data` volume; CI builds it and smoke-tests `version`, `cron list` and `cron add`.
 
+- **V7 Parity (2026-10-24, in progress on `dev`; plan in `odd/tasks/v7-parity.md`).**
+  - T1 fallback providers: `fallback_providers` and legacy `fallback_model` form a chain; rate limit, billing, auth and missing-model errors switch at once, transient errors after the retries; the primary comes back next turn unless its rate-limit cooldown runs.
+  - T2 `delegate_task`: synchronous parallel subagents with upstream's child prompt, blocked tools, iteration budget, `subagent` session rows under the caller and upstream's result entries; child approvals deny unless `delegation.subagent_auto_approve`.
+  - T3 auxiliary routing: the compression summary uses `auxiliary.compression` (pinned route or model override) with its timeout and 300 s floor.
+  - T6a `/v1/responses`: create, get and delete with a SQLite LRU store, `previous_response_id` and `conversation` chains that continue one session, upstream's streaming events, and `max_concurrent_runs` (10) on chat completions and responses.
+  - T6b `/v1/runs`: background runs with pollable status, an SSE event stream with replay, stop, and session resume by `session_id`.
+  - T6c `/api/sessions`: list, create, get, patch (title and sidebar flags), delete, paged messages and fork over the runtime's state.db.
+  - T7 smart approval (`approvals.mode: smart`): an auxiliary LLM reviews every flagged command before any human. `approve` runs it once and persists nothing, `deny` reduces the menu to `[o]nce  |  [d]eny` (and persists nothing), and `escalate`, an empty answer or a failed call follows the normal path. Shell comments are stripped before assessment, `approvals.smart_policy` rides the guardian system prompt, and `approvals.denial_breaker_threshold` (default 3) appends the circuit-breaker stop text after repeated denials. `auxiliary.approval` picks the assessing route and timeout (30 s default).
+  - T6d `/api/sessions/{id}/chat`, `/chat/stream`: one turn over a stored session, seeded with its active transcript, answered as `hermes.session.chat.completion` or as upstream's typed SSE events (`run.started`, `message.started`, `assistant.delta`, `tool.started`/`tool.failed`, `assistant.completed`, `run.<status>`, `done`). The streamed turn is also a pollable run. A Browser model lock is persisted under `model_config.browser_model_lock` and replayed by later turns.
+
+## Known V7 gaps (deliberate, tracked)
+
+- `/v1/responses`: no reasoning items, idempotency keys, `X-Hermes-Session-Key` or multimodal input; failures report a generic message; system and developer history entries are dropped; truncation keeps no compaction summary; JSON is compact, not Python-spaced; the session source is `api`.
+- `/v1/runs`: no Idempotency-Key, approval, clarify, steer or resolve-unknown endpoints; no `message.interim`, reasoning or subagent events; tool previews show only the primary argument and results are not redacted; failures say `agent run failed`.
+- `/api/sessions`: no compression lineage (tip projection, ancestor messages, lineage-wide flags), retired-id fence or Bot Chat rules; delete leaves session files alone.
+- Session chat: no provider switching (a locked provider is refused with `model_lock_unavailable`), no `model_routes` aliases, `model_options`/reasoning, `gateway_session_key`, `turn_author`, per-turn `requested` provenance beyond the body, or Bot Chat/live-owner handoff. `messages` on `run.completed` carries the port's replayable transcript shape, not the client row projection, and a failed turn reports `agent run failed` as its `error` event.
+
 ## Known V6 gaps (deliberate, tracked)
 
-- No container image is published; the image is built in CI only. No Homebrew tap, Scoop bucket, signing or SBOM.
+- The image is published to `ghcr.io/umi008/hermes-go` on `v*` tags (V8), for linux/amd64 and linux/arm64; no Homebrew tap, Scoop bucket, signing or SBOM.
 - The distroless image has no shell, so the local `terminal` backend fails inside it.
 - `serve` in a container must listen on `0.0.0.0`, which requires an API key.
 
 ## Known V5 gaps (deliberate, tracked)
 
-- TUI: legacy wire only (no `session_authority`, receipts or epochs); no resume, session list, slash commands, model switch, skins, `sudo`/`secret` requests or usage ticker; startup and poll methods return empty results, so the banner lists 0 tools; sessions end when their connection closes.
+- Agent loop: a provider's `Retry-After` (delta-seconds or HTTP date) replaces the local backoff, and a response cut by the output limit is continued up to 4 times with upstream's nudge before the partial answer is kept. Not ported: the `retry_after` field of an in-stream error payload, the reasoning-off override for a thinking-only truncation, and the chunked retry for a truncated tool-call argument stream.
+- TUI: the canonical wire is spoken (`session_authority`, epochs, `runtime.describe`, `session.list`, `session.resume`), but not upstream's receipt ledger: no `prompt.receipt`, no event replay (`last_sequence` is 0), no pending admissions or `open_requests`, no display projection, no skins. The slash menu is served over the gateway's own catalog (`/help`, `/model`, `/status`), while `command.resolve`/`command.dispatch`, the model switch, `sudo`/`secret` requests and the usage ticker are not ported; `info.tools` and `info.skills` carry the real inventory (toolset to tool names, category to skill names) through a per-request `Options.Inventory`, so the banner counts what the agent can actually do; `commands.catalog` counts the same skills. The remaining polls still answer empty (`subagent.list`, `process.list`, `system.battery`). A dropped connection parks its session for `Options.OrphanGrace` (20 s by default) instead of ending it, so a reconnecting client resumes the same live conversation; a session nobody returns for is reaped, and its stored transcript stays resumable.
 
 - Interactive CLI: plain line input (no prompt_toolkit editing, completion, history file, spinner or status bar), no /undo prefill, lines typed during a turn queue for after it. /model only shows the model. The approval menu has no [a]lways because the port never writes config.yaml; session approvals survive /new. Hook `approve` directives still follow config, not a prompt.
 - `/retry` and `/undo` port the plain rewind (soft archive with `active = 0`); no compaction carriers, turn leases or memory-provider notifications.
-- API server: no `/v1/responses`, `/v1/runs` or `/api/sessions`, no conversation resume (one session per request), and usage is reported only on the non-streaming path.
+- API server: chat completions run one session per request, and usage is reported only on the non-streaming path.
 - Cron: no delivery targets, quotas, dependency chains, `context_from` or thread handoff; one job runs at a time, and a job never resumes a conversation.
 - Gateway: no pairing flow, delivery ledger, rooms or webhooks; approvals are text menus rather than inline keyboards; no media, voice or topics. A chat session lives as long as the process.
 - Server sessions leave `${HERMES_SESSION_ID}` and the memory tool's current session empty: those read one current session per runtime, which only the REPL sets.
@@ -115,8 +133,8 @@ compatibility with the Hermes home where practical.
 ## Known V4 gaps (deliberate, tracked)
 
 - Skills: `skill_manage` writes them from interactive sessions (V5); `chat -q` still sees them read-only, as upstream. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
-- MCP: no resources or prompts utility tools, no reconnect or backoff, no OAuth, no sampling, no const-union schema collapse, no server-name toolset alias. Images and audio become a text notice instead of a cached file. Globs use `path.Match`, which differs from `fnmatch` on `/`.
-- Hooks: only `pre_tool_call` and `post_tool_call` fire; other valid events are logged and skipped. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
+- MCP: tools listed at the first connect stay registered after a reconnect (no `tools/list_changed` refresh), no event tools, no keepalive ping, no OAuth, no sampling, no const-union schema collapse, no server-name toolset alias. Images and audio become a text notice instead of a cached file. Globs use `path.Match`, which differs from `fnmatch` on `/`.
+- Hooks: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`, `subagent_start` and `subagent_stop` fire; other valid events are logged and skipped. `task_id`, `turn_id`, `parent_turn_id` and `sender_id` are empty. `pre_llm_call` context is not spilled to disk when oversized, and the injected text is not persisted, so a resumed session replays the typed message. `subagent_stop` does not redact the child summary. No interrupted `on_session_end` at shutdown. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
 
 ## Known V3 gaps (deliberate, tracked)
 
@@ -124,20 +142,20 @@ compatibility with the Hermes home where practical.
 - No session lineage (compression children, branches); each session is its own root. Compaction summaries are not persisted.
 - `session_search`: no cross-profile reads, no title match, no CJK, ASCII `\w` in the sanitizer.
 - `memory`: no threat scan, no cross-process file lock, no per-turn consolidation cap, no write approval gate.
-- Compression: no model-metadata context lookup (config or 256K default), no lean session log or anchors, no secret redaction, no per-tool digest formatters, no image retirement, no cooldowns, `compression.max_attempts` is fixed at 3, the summary uses the main model.
+- Compression: no model-metadata context lookup (config or 256K default), no lean session log or anchors, no secret redaction, no per-tool digest formatters, no image retirement, no cooldowns, `compression.max_attempts` is fixed at 3.
 
 ## Known V2 gaps (deliberate, tracked)
 
 - No grep-safe variant of `search_files` output and no secret-URL refusal in `web_extract`.
-- No smart (LLM) approval and no gateway approvals; `chat -q` has no prompter (the interactive CLI asks), so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
-- `patch` ports exact and whitespace-tolerant matching only; upstream's further fuzzy strategies are not ported. No `.gitignore` filtering in `search_files`.
+- Smart approval (`approvals.mode: smart`) covers the surfaces that can ask a human: the interactive CLI, the TUI wire and the gateways. An unattended run (`-q`, `serve`, cron) resolves from its own mode before the guardian, as upstream. Not ported: upstream approval plugin hooks (`pre_approval_request`/`post_approval_response`), `temperature: 0` on the verdict (the client contract has no sampling knobs), per-task `reasoning_effort`, the pending-approval fallback and gateway inline keyboards.
+- `chat -q` has no prompter, so dangerous commands are blocked unless `approvals.single_query_mode: approve` or `approvals.mode: off`.
+- `patch` ports upstream's whole strategy ladder except `trimmed_boundary` (dominated by `line_trimmed`): exact, line-trimmed, whitespace-normalized, indentation-flexible, escaped-whitespace, unicode-normalized, block-anchor and context-aware, with `difflib`'s exact similarity ratio, plus upstream's two guards (no whitespace-only anchor, no `replace_all` over similarity matches). Not ported: the `boundary_note` warning on non-exact matches. `search_files` asks git once per search which untracked paths it ignores and prunes them before paging, so an ignored file is never read; gitignored *tracked* files are still searched, as git's own scope does.
 - Docker: killing `docker exec` does not stop the process inside the container; the container is removed on exit.
 - Command deobfuscation is limited to upstream's normalization; no parser-limit block.
 - `clarify` returns "not available" in `chat -q`; the interactive CLI answers it.
 
 ## Known V1 gaps (deliberate, tracked)
 
-- `fallback_providers` is not wired. Only the primary provider is used.
 - There is no Retry-After honoring. Backoff is upstream's jittered exponential (5s base, 120s cap).
 - There is no `max_tokens` continuation. A truncated reply is returned as is.
 - The timestamp line covers the same-day form only. The "Today's date" rebuild line and the Session ID trailer are not ported.
@@ -147,8 +165,11 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V5 Interfaces: done on `dev`. A later TUI slice can add the canonical wire, resume and slash commands.
-- Merge `dev` into `main` and tag the first release once the owner approves.
+- V7 is complete: T1-T12 landed.
+- V8 Distribution and onboarding is done on `dev` (`odd/tasks/v8-distribution.md`): `doctor`, `scripts/install.sh`, `scripts/install.ps1`, `go install` reporting the tag, `docs/GETTING_STARTED.md`, and the GHCR image job. It reaches users after `dev` is merged to `main` and `v0.2.0` is tagged.
+- Next: V9 Shared Hermes home, planned in [ROADMAP.md](ROADMAP.md) with V10-V12.
+- Rows marked `out` in PARITY stay out unless the owner reopens them.
+- Merge `dev` into `main` and tag `v0.2.0` when the owner approves.
 
 ## Local dev notes
 
@@ -175,6 +196,7 @@ compatibility with the Hermes home where practical.
 | 2026-10-24 | `internal/gateway/adapter.go` is the platform seam: adapters speak their wire protocol, the core owns sessions, queues and approvals | Telegram and Discord stay free of store and prompt code, and each adapter can land without touching the core. |
 | 2026-10-24 | `skill_manage` ports the advertised `operations` array with atomic rollback, minus the staged write gate, audit ledger, linter and curator guard | Those parts depend on Python machinery (staged approvals, a JSONL ledger, skill sync) the port does not have; the contract the model sees is preserved. |
 
+| 2026-10-24 | `delegate_task` runs children synchronously and they share the parent's terminal session | Upstream runs synchronously too when nobody consumes later results; a per-child terminal needs a backend per child, which the Docker backend makes costly. Children never see a human: approvals deny unless `delegation.subagent_auto_approve` is true. |
 | 2026-10-24 | The TUI backend speaks upstream's legacy wire first; `prompt.submit` refuses `submission_id` with 4000 as upstream's legacy contract does | The upstream TUI falls back to legacy delivery on that refusal, so the unmodified client works without the canonical handshake. |
 | 2026-10-24 | WebSocket on `github.com/coder/websocket` (v1.8.15) | Small, maintained, context-aware, no dependencies. |
 

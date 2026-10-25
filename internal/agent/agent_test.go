@@ -381,3 +381,38 @@ func TestRewindAndReset(t *testing.T) {
 		}
 	}
 }
+
+func TestHistorySeedsPriorConversation(t *testing.T) {
+	c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){text("two")}}
+	prior := []llm.Message{{Role: llm.RoleUser, Content: "a"}, {Role: llm.RoleAssistant, Content: "one"}}
+	var recorded []string
+	a := New(Options{Client: c, History: prior, OnMessage: func(m llm.Message) { recorded = append(recorded, m.Content) }})
+	prior[0].Content = "mutated"
+	if _, err := a.Run(context.Background(), "b"); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, 4)
+	for _, m := range c.requests[0].Messages {
+		got = append(got, m.Content)
+	}
+	if strings.Join(got, ",") != "a,one,b" {
+		t.Fatalf("sent = %v, want the seeded history before the new message", got)
+	}
+	if strings.Join(recorded, ",") != "b,two" {
+		t.Fatalf("OnMessage saw %v, want only this turn's messages", recorded)
+	}
+}
+
+func TestOutcomeMapsRunEndings(t *testing.T) {
+	c := &scriptClient{replies: []func(llm.Request, func(llm.Event)) (llm.Response, error){
+		toolCalls(llm.ToolCall{ID: "1", Name: "echo"}), toolCalls(llm.ToolCall{ID: "2", Name: "echo"}),
+	}}
+	a := New(Options{Client: c, Tools: fakeTools{}, MaxTurns: 2, Backoff: noWait})
+	res, err := a.Run(context.Background(), "hello")
+	if got := a.Outcome(context.Background(), res, err); got.Completed || got.Reason != "max_iterations_reached(2/2)" {
+		t.Fatalf("budget outcome = %+v", got)
+	}
+	if got := a.Outcome(context.Background(), Result{StopReason: llm.StopEnd}, nil); !got.Completed || got.Reason != "text_response(finish_reason=stop)" {
+		t.Fatalf("completed outcome = %+v", got)
+	}
+}

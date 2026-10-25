@@ -4,12 +4,16 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"time"
 )
 
 func main() {
+	info, ok := debug.ReadBuildInfo()
+	version = moduleVersion(version, info, ok)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	interrupt := make(chan struct{}, 1)
@@ -32,6 +36,7 @@ func main() {
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		Interrupt:   interrupt,
+		LookPath:    exec.LookPath,
 	}
 	code := Run(context.Background(), os.Args[1:], env)
 	signal.Stop(sig)

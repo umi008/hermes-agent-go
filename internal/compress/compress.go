@@ -91,6 +91,8 @@ type Options struct {
 	ProtectLastN  int
 	Now           func() time.Time
 	Logger        *slog.Logger
+	// Timeout bounds the summary call; zero means no bound.
+	Timeout time.Duration
 }
 
 // Compressor keeps the previous summary so later passes update it.
@@ -459,6 +461,11 @@ var refusalRE = regexp.MustCompile(`(?i)^\s*(i'm sorry|i am sorry|i can(no|')t|i
 func (c *Compressor) summarize(ctx context.Context, window []llm.Message, hasUser bool) (string, error) {
 	if c.o.Client == nil {
 		return "", errors.New("no summary client")
+	}
+	if c.o.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.o.Timeout)
+		defer cancel()
 	}
 	req := llm.Request{Model: c.o.Model, Messages: []llm.Message{{Role: llm.RoleUser, Content: c.Prompt(window, hasUser)}}}
 	resp, err := c.o.Client.Stream(ctx, req, func(llm.Event) {})

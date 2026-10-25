@@ -14,8 +14,8 @@ import (
 )
 
 // validEvents is upstream VALID_HOOKS minus the Python-plugin-only events.
-// The Go port fires pre_tool_call and post_tool_call; the others parse and
-// are reported as unsupported.
+// The events in supported fire; the others parse and are reported as
+// unsupported.
 var validEvents = map[string]bool{
 	"pre_tool_call": true, "post_tool_call": true, "transform_terminal_output": true, "transform_tool_result": true,
 	"pre_llm_call": true, "post_llm_call": true, "pre_api_request": true, "post_api_request": true,
@@ -25,7 +25,10 @@ var validEvents = map[string]bool{
 }
 
 // Supported events fire in the Go port.
-var supported = map[string]bool{PreToolCall: true, PostToolCall: true}
+var supported = map[string]bool{
+	PreToolCall: true, PostToolCall: true, PreLLMCall: true, PostLLMCall: true,
+	OnSessionStart: true, OnSessionEnd: true, SubagentStart: true, SubagentStop: true,
+}
 
 // toolEvents honor the matcher field.
 var toolEvents = map[string]bool{PreToolCall: true, PostToolCall: true}

@@ -31,6 +31,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			"The API server has no backend.")
 		return
 	}
+	release, ok := s.admit(w)
+	if !ok {
+		return
+	}
+	defer release()
 	input, stream, bad := parseChatRequest(w, r)
 	if bad != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", bad.code, bad.message)
@@ -87,7 +92,8 @@ func parseChatRequest(w http.ResponseWriter, r *http.Request) (input string, str
 }
 
 // contentText flattens OpenAI message content: a plain string, or an array of
-// parts of which only the text survives. This port does not take images.
+// parts of which only the text survives (text, input_text, output_text). This
+// port does not take images.
 func contentText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -105,11 +111,20 @@ func contentText(raw json.RawMessage) string {
 	}
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
-		if part.Text != "" && (part.Type == "text" || part.Type == "") {
+		if part.Text != "" && textPart(part.Type) {
 			out = append(out, part.Text)
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// textPart is upstream _TEXT_PART_TYPES, plus an untyped part.
+func textPart(typ string) bool {
+	switch typ {
+	case "", "text", "input_text", "output_text":
+		return true
+	}
+	return false
 }
 
 // coerceBool normalizes boolean-like payload values, as upstream
@@ -144,7 +159,7 @@ func coerceBool(raw json.RawMessage, def bool) bool {
 // a whole chat.completion object.
 func (s *Server) completeChat(w http.ResponseWriter, r *http.Request, input string) {
 	ctx := r.Context()
-	sess := s.backend.NewSession(ctx, sessionSource, io.Discard)
+	sess := s.backend.NewSession(ctx, SessionOptions{Source: sessionSource})
 	if sess == nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "internal_error",
 			"The API server could not open a session.")
@@ -184,7 +199,7 @@ func (s *Server) streamChat(w http.ResponseWriter, r *http.Request, input string
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
 	out := newSSEWriter(w, newCompletionID(), s.backend.Model(), s.now().Unix())
-	sess := s.backend.NewSession(ctx, sessionSource, out)
+	sess := s.backend.NewSession(ctx, SessionOptions{Source: sessionSource, Out: out})
 	if sess == nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "internal_error",
 			"The API server could not open a session.")

@@ -99,3 +99,61 @@ func TestExecute(t *testing.T) {
 		t.Errorf("error not capped: %d", len(obj["error"]))
 	}
 }
+
+func TestWithoutHasAndWith(t *testing.T) {
+	mk := func(name string) Tool {
+		return Tool{Name: name, Handler: func(context.Context, json.RawMessage) (string, error) { return "", nil }}
+	}
+	r, err := NewRegistry(mk("a"), mk("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	less := r.Without("a")
+	if less.Has("a") || !less.Has("b") || !r.Has("a") {
+		t.Error("Without must drop only from the copy")
+	}
+	more, err := r.With(mk("c"))
+	if err != nil || !more.Has("c") || r.Has("c") {
+		t.Errorf("With = %v", err)
+	}
+	if _, err := r.With(mk("a")); err == nil {
+		t.Error("With must reject a duplicate name")
+	}
+}
+
+// TestInventory pins the banner's view of the registry: tools grouped by
+// toolset, names sorted, and a tool that cannot run left out exactly as Specs
+// leaves it out.
+func TestInventory(t *testing.T) {
+	noop := func(context.Context, json.RawMessage) (string, error) { return "", nil }
+	r, err := NewRegistry(
+		Tool{Name: "b_tool", Toolset: "files", Handler: noop},
+		Tool{Name: "a_tool", Toolset: "files", Handler: noop},
+		Tool{Name: "web_search", Toolset: "web", Handler: noop},
+		Tool{Name: "needs_key", Toolset: "web", Handler: noop, Available: func() bool { return false }},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := r.Inventory()
+	if len(got) != 2 {
+		t.Fatalf("inventory = %v", got)
+	}
+	if strings.Join(got["files"], ",") != "a_tool,b_tool" {
+		t.Errorf("files = %v, want sorted names", got["files"])
+	}
+	if strings.Join(got["web"], ",") != "web_search" {
+		t.Errorf("web = %v, want the unavailable tool left out", got["web"])
+	}
+}
+
+// TestInventoryEmpty pins that an empty registry answers an empty map, not nil.
+func TestInventoryEmpty(t *testing.T) {
+	r, err := NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Inventory(); got == nil || len(got) != 0 {
+		t.Fatalf("inventory = %v, want an empty map", got)
+	}
+}

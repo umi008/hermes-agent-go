@@ -8,10 +8,13 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/umi008/hermes-agent-go/internal/agent"
 	"github.com/umi008/hermes-agent-go/internal/config"
 	"github.com/umi008/hermes-agent-go/internal/home"
 	"github.com/umi008/hermes-agent-go/internal/hooks"
@@ -42,12 +45,32 @@ type Env struct {
 	// Interrupt delivers Ctrl-C. It cancels the running turn, and in the
 	// interactive chat an idle Ctrl-C exits. Nil never fires.
 	Interrupt <-chan struct{}
+	// LookPath finds a binary on PATH (doctor). Nil uses exec.LookPath.
+	LookPath func(string) (string, error)
 }
 
 // version is the release version, set at build time with
 // -ldflags "-X main.version=1.2.3" (GoReleaser passes the tag without its
 // leading v). Development builds report "dev".
 var version = "dev"
+
+// pseudoVersion matches the timestamp-and-commit tail Go stamps on untagged
+// builds: a local `go build` in a checkout, or `go install ...@main`.
+var pseudoVersion = regexp.MustCompile(`\d{14}-[0-9a-f]{12}`)
+
+// moduleVersion keeps an injected version and otherwise reports the release
+// tag Go records for `go install ...@vX.Y.Z`, without its leading v. Untagged
+// builds ("(devel)", pseudo-versions, +dirty) stay "dev".
+func moduleVersion(injected string, info *debug.BuildInfo, ok bool) string {
+	if injected != "dev" || !ok || info == nil {
+		return injected
+	}
+	v := info.Main.Version
+	if v == "" || v == "(devel)" || strings.Contains(v, "+") || pseudoVersion.MatchString(v) {
+		return injected
+	}
+	return strings.TrimPrefix(v, "v")
+}
 
 const usage = `Usage: hermes-go <command> [flags]
 
@@ -57,6 +80,7 @@ Commands:
   cron     Manage and run scheduled jobs
   gateway  Serve a chat platform (Telegram, Discord)
   tui      Run the upstream Ink TUI against this agent
+  doctor   Check the home, config, provider and optional tools
   version  Print the version
 
 Run "hermes-go <command> -h" for that command's flags.
@@ -85,6 +109,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return gatewayCmd(ctx, args[1:], env)
 	case "tui":
 		return tuiCmd(ctx, args[1:], env)
+	case "doctor":
+		return doctorCmd(args[1:], env)
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "hermes-go: unknown command %q\n\n%s", args[0], usage)
 	return 2
@@ -153,10 +179,12 @@ type chatRuntime struct {
 	cwd      string
 	userHome string
 	client   llm.Client
-	store    *state.Store
-	memory   *memory.Store
-	skills   *skills.Catalog
-	reg      *tools.Registry
+	// fallbacks is the resolved fallback_providers chain.
+	fallbacks []agent.Route
+	store     *state.Store
+	memory    *memory.Store
+	skills    *skills.Catalog
+	reg       *tools.Registry
 	// Per-session hook wiring: the specs and the runner are shared, the
 	// session id is not, so each session wraps the registry itself.
 	hookSpecs  []hooks.Spec
@@ -288,6 +316,14 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 		env: env, f: f, logger: logger, cfg: cfg, lookup: lookup, ep: ep,
 		hermes: h.Dir, cwd: cwd, userHome: userHome, client: newClient(ep),
 	}
+	chain, warns := provider.FallbackChain(cfg, lookup)
+	for _, w := range warns {
+		logger.Warn(w)
+	}
+	for _, fb := range chain {
+		rt.fallbacks = append(rt.fallbacks, agent.Route{Client: newClient(fb), Provider: fb.Provider, Model: fb.Model, BaseURL: fb.BaseURL})
+		logger.Debug("fallback provider", "provider", fb.Provider, "model", fb.Model, "base_url", fb.BaseURL)
+	}
 	rt.store = openStore(ctx, h.Dir, env.Now, logger)
 	rt.memory = openMemory(h.Dir, cfg, logger)
 	rt.skills = openSkills(h.Dir, userHome, cfg, lookup, logger)
@@ -301,6 +337,7 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 		cfg: cfg, lookup: lookup, homeDir: userHome, hermes: h.Dir, cwd: cwd,
 		toolsets: f.toolsets, logger: logger, memory: rt.memory, skills: rt.skills, profile: f.profile,
 		store: rt.store, sessionID: rt.sessionID,
+		route: agent.Route{Client: rt.client, Provider: ep.Provider, Model: ep.Model},
 	}
 	deps.asker, deps.prompter = humans(rt)
 	reg, closeTools, err := buildTools(ctx, deps)
@@ -312,6 +349,9 @@ func buildRuntime(ctx context.Context, f chatFlags, env Env, logger *slog.Logger
 	rt.hookRunner = &hooks.Runner{GOOS: env.GOOS, Home: userHome, Logger: logger}
 	rt.approve = func(string, string) bool {
 		return cfg.String("approvals", "mode") == "off" || cfg.String("approvals", "single_query_mode") == "approve"
+	}
+	if err := rt.withDelegation(); err != nil {
+		return nil, err
 	}
 	return rt, nil
 }

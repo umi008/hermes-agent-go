@@ -104,3 +104,28 @@ func TestHomeFolding(t *testing.T) {
 		}
 	}
 }
+
+func TestScopedPrompterAnswersInsteadOfTheHuman(t *testing.T) {
+	human := &fakePrompter{choice: Session}
+	g := New(Options{Detector: newDetector(t), Prompter: human})
+	if err := g.Check(context.Background(), "git push --force"); err != nil {
+		t.Fatal(err)
+	}
+	deny := &fakePrompter{choice: Deny}
+	ctx := WithPrompter(context.Background(), deny)
+	// The parent's session approval does not cover a scoped caller.
+	if err := g.Check(ctx, "git push --force"); err == nil || !strings.Contains(err.Error(), "User denied") {
+		t.Fatalf("scoped deny = %v", err)
+	}
+	if human.calls != 1 || deny.calls != 1 {
+		t.Errorf("human %d, scoped %d calls", human.calls, deny.calls)
+	}
+	// A scoped session answer is not remembered for the parent.
+	g2 := New(Options{Detector: newDetector(t), Prompter: &fakePrompter{choice: Deny}})
+	if err := g2.Check(WithPrompter(context.Background(), &fakePrompter{choice: Session}), "git push --force"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g2.Check(context.Background(), "git push --force"); err == nil {
+		t.Error("a subagent's session approval leaked to the parent")
+	}
+}

@@ -8,6 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Role is a message author.
@@ -139,6 +143,30 @@ type APIError struct {
 	Provider string
 	Status   int
 	Body     string
+	// RetryAfter is the provider's own wait, from its Retry-After header. Zero
+	// means the provider asked for nothing, so the caller's backoff decides.
+	RetryAfter time.Duration
+}
+
+// ParseRetryAfter parses a Retry-After value: delta-seconds or an HTTP date
+// (RFC 7231). The result is clamped at zero — a date in the past means wait
+// nothing — and ok is false when the value is absent or unparseable.
+func ParseRetryAfter(value string) (time.Duration, bool) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseFloat(text, 64); err == nil {
+		return time.Duration(max(seconds, 0) * float64(time.Second)), true
+	}
+	when, err := http.ParseTime(text)
+	if err != nil {
+		return 0, false
+	}
+	if until := time.Until(when); until > 0 {
+		return until, true
+	}
+	return 0, true
 }
 
 func (e *APIError) Error() string {

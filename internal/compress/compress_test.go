@@ -209,3 +209,26 @@ func TestPlaceMergesWhenNoRoleFits(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// blockingClient waits for its context, as a stalled provider would.
+type blockingClient struct{}
+
+func (blockingClient) Stream(ctx context.Context, _ llm.Request, _ func(llm.Event)) (llm.Response, error) {
+	<-ctx.Done()
+	return llm.Response{}, ctx.Err()
+}
+
+func TestSummaryTimeoutFallsBack(t *testing.T) {
+	c := New(Options{Client: blockingClient{}, ContextLength: 40_000, Timeout: 10 * time.Millisecond})
+	out, err := c.Compress(context.Background(), conversation(10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, m := range out {
+		found = found || strings.Contains(m.Content, "Summary failure reason: context deadline exceeded")
+	}
+	if !found {
+		t.Fatal("a timed-out summary must fall back deterministically")
+	}
+}
