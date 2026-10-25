@@ -19,8 +19,10 @@ import (
 // goes to. The REPL keeps one current session; the servers open one per
 // request or per chat and never touch rt.cur.
 type chatSession struct {
-	rt      *chatRuntime
-	id      string
+	rt *chatRuntime
+	id string
+	// source is the upstream session source, the hooks' platform.
+	source  string
 	rec     *recorder
 	agent   *agent.Agent
 	started time.Time
@@ -46,7 +48,7 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 		out = io.Discard
 	}
 	started := rt.env.Now()
-	s := &chatSession{rt: rt, out: out, started: started, observe: observe}
+	s := &chatSession{rt: rt, source: source, out: out, started: started, observe: observe}
 	s.rec = newRecorder(ctx, rt.store, state.Session{
 		ID: state.NewSessionID(started), Source: source, Model: rt.ep.Model, Cwd: rt.cwd,
 	}, rt.logger)
@@ -90,6 +92,7 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 		System:     sys.Tiers(),
 		CacheTTL:   cacheTTL(rt.cfg),
 		MaxTurns:   maxTurns,
+		Hooks:      rt.lifecycle(func() string { return s.id }, source).Turns(),
 		Logger:     rt.logger,
 		OnMessage:  func(m llm.Message) { s.rec.message(ctx, m) },
 		OnEvent:    func(e agent.Event) { s.onEvent(ctx, e) },

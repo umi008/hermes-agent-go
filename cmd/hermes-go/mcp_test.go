@@ -38,6 +38,11 @@ func TestMain(m *testing.M) {
 		_ = f.Close()
 		os.Exit(0)
 	}
+	if len(os.Args) > 1 && os.Args[1] == "fake-hook-context" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		_, _ = os.Stdout.WriteString(`{"context":"PLUGIN NOTE"}`)
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "fake-hook" {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		_, _ = os.Stderr.WriteString("todo is off limits\n")

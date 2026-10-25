@@ -197,3 +197,46 @@ func TestThousands(t *testing.T) {
 		}
 	}
 }
+
+func TestStoppedSeesEachCappedEntryInOrder(t *testing.T) {
+	long := strings.Repeat("x", 50)
+	var stopped []string
+	o := Options{
+		MaxSummaryChars: 10,
+		Run: func(_ context.Context, task Task) Outcome {
+			return Outcome{Text: long, SessionID: "child-" + task.Goal}
+		},
+		Stopped: func(_ context.Context, task Task, out Outcome, entry map[string]any) {
+			summary, _ := entry["summary"].(string)
+			if summary == long {
+				t.Errorf("Stopped saw an uncapped summary for %s", task.Goal)
+			}
+			stopped = append(stopped, task.Goal+"="+out.SessionID)
+		},
+	}
+	if _, err := call(t, o, `{"tasks":[{"goal":"a"},{"goal":"b"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(stopped, ",") != "a=child-a,b=child-b" {
+		t.Fatalf("stopped = %v", stopped)
+	}
+}
+
+func TestStopHistory(t *testing.T) {
+	entry := resultEntry(0, Outcome{Text: "ok", Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: "write_file", Arguments: json.RawMessage(`{"path":"notes/r.txt","content":"secret"}`)},
+			{ID: "2", Name: "terminal", Arguments: json.RawMessage(`{"command":"ls"}`)},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "1", Content: "written"},
+	}}, 1)
+	got, _ := json.Marshal(StopHistory(entry))
+	want := `[{"input_bytes":41,"output_bytes":7,"status":"ok","tool_input":{"argument_keys":["content","path"],"targets":{"path":"notes/r.txt"}},"tool_name":"write_file"},` +
+		`{"input_bytes":16,"output_bytes":0,"status":"unknown","tool_input":{"argument_keys":["command"],"targets":{}},"tool_name":"terminal"}]`
+	if string(got) != want {
+		t.Fatalf("history =\n%s\nwant\n%s", got, want)
+	}
+	if h := StopHistory(map[string]any{}); h == nil || len(h) != 0 {
+		t.Fatalf("empty trace history = %#v", h)
+	}
+}

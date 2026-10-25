@@ -105,7 +105,9 @@ type Options struct {
 	// Compressor, when set, compacts the history before a call that would
 	// cross its threshold. Compacted history is not re-sent to OnMessage.
 	Compressor Compressor
-	Logger     *slog.Logger
+	// Hooks, when set, observe each turn; see TurnHooks.
+	Hooks  TurnHooks
+	Logger *slog.Logger
 }
 
 // Result summarizes one Run.
@@ -124,6 +126,9 @@ type Agent struct {
 	lastPrompt int
 	noted      bool
 	fallback   fallbackState
+	// injected maps a user message sent with pre_llm_call context to the
+	// text the user typed, so Rewind hands back what was typed.
+	injected map[string]string
 }
 
 // New builds an agent.
@@ -169,7 +174,38 @@ func (a *Agent) emit(e Event) {
 // tool calls, the budget runs out, or ctx is done.
 func (a *Agent) Run(ctx context.Context, input string) (Result, error) {
 	a.restorePrimary()
-	a.record(llm.Message{Role: llm.RoleUser, Content: input})
+	msg := llm.Message{Role: llm.RoleUser, Content: input}
+	h := a.opts.Hooks
+	if h == nil {
+		a.record(msg)
+		return a.loop(ctx)
+	}
+	turn := TurnInfo{UserMessage: input, FirstTurn: len(a.history) == 0, Model: a.fallback.active.Model}
+	if turn.FirstTurn {
+		h.SessionStart(ctx, turn.Model)
+	}
+	turn.History = append(a.History(), msg)
+	sent := msg
+	if extra := h.PreLLMCall(ctx, turn); extra != "" {
+		sent.Content += "\n\n" + extra
+		if a.injected == nil {
+			a.injected = map[string]string{}
+		}
+		a.injected[sent.Content] = input
+	}
+	a.history = append(a.history, sent)
+	if a.opts.OnMessage != nil {
+		a.opts.OnMessage(msg)
+	}
+	res, err := a.loop(ctx)
+	turn.History, turn.Model = a.History(), a.fallback.active.Model
+	h.PostLLMCall(ctx, turn, res.Text)
+	h.TurnEnd(ctx, turn, turnEnd(ctx, res, err, a.opts.MaxTurns))
+	return res, err
+}
+
+// loop calls the model and runs tools until the turn ends.
+func (a *Agent) loop(ctx context.Context) (Result, error) {
 	var res Result
 	var specs []llm.ToolSpec
 	if a.opts.Tools != nil {
@@ -363,7 +399,7 @@ func JitteredBackoff(attempt int) time.Duration {
 
 // Reset clears the conversation for a new session.
 func (a *Agent) Reset() {
-	a.history, a.lastPrompt, a.noted = nil, 0, false
+	a.history, a.lastPrompt, a.noted, a.injected = nil, 0, false, nil
 }
 
 // Rewind drops the last n user turns (clamped to the oldest), as upstream
@@ -382,6 +418,9 @@ func (a *Agent) Rewind(n int) (text string, removed int, ok bool) {
 	}
 	cut := users[max(len(users)-max(n, 1), 0)]
 	text, removed = a.history[cut].Content, len(a.history)-cut
+	if typed, ok := a.injected[text]; ok {
+		text = typed
+	}
 	a.history = a.history[:cut:cut]
 	a.lastPrompt = 0
 	return text, removed, true

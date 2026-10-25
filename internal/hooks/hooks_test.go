@@ -34,6 +34,8 @@ func TestMain(m *testing.M) {
 			_, _ = os.Stdout.WriteString(`{"action":"modify","args":{"command":"ls"}}`)
 		case "approve":
 			_, _ = os.Stdout.WriteString(`{"action":"approve","message":"check"}`)
+		case "context":
+			_, _ = os.Stdout.WriteString(`{"context":"` + os.Args[3] + `"}`)
 		case "sleep":
 			time.Sleep(5 * time.Second)
 		}
@@ -147,16 +149,20 @@ func TestParse(t *testing.T) {
 			"nope",
 		},
 		"post_tool_call": []any{map[string]any{"command": "c.sh", "fail_closed": true, "timeout": 0, "matcher": "("}},
-		"pre_llm_call":   []any{map[string]any{"command": "d.sh"}},
+		"pre_llm_call":   []any{map[string]any{"command": "d.sh", "matcher": "x"}},
+		"pre_compress":   []any{map[string]any{"command": "f.sh"}},
 		"bogus":          []any{map[string]any{"command": "e.sh"}},
 		"output_spill":   map[string]any{"x": 1},
 		"on_session_end": nil,
 	}
 	got := Parse(raw, nil)
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("%+v", got)
 	}
-	c, a, b := got[0], got[1], got[2]
+	c, d, a, b := got[0], got[1], got[2], got[3]
+	if d.Event != PreLLMCall || d.Command != "d.sh" || d.Matcher != "" {
+		t.Errorf("d = %+v, want a pre_llm_call spec without the tool-only matcher", d)
+	}
 	if c.Event != PostToolCall || c.FailClosed || c.Timeout != DefaultTimeout || c.Matcher != "(" || c.matcher != nil {
 		t.Errorf("c = %+v", c)
 	}

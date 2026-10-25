@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -148,5 +150,61 @@ func TestChildPrompterDeniesUnlessAutoApprove(t *testing.T) {
 	}
 	if c, _ := (childPrompter{rt: rt, approve: true}).Approve(context.Background(), approval.Request{}); c != approval.Once {
 		t.Errorf("auto approve = %v, want once", c)
+	}
+}
+
+// TestDelegateTaskFiresSubagentHooks covers T4: subagent_start and
+// subagent_stop carry the parent session and the child's session row, and a
+// child turn fires the turn events under the child's own session id.
+func TestDelegateTaskFiresSubagentHooks(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dumpDir := t.TempDir()
+	t.Setenv("HERMES_HOOK_DUMP", dumpDir)
+	dump, _ := json.Marshal(`"` + exe + `" fake-hook-dump`)
+	srv, _ := delegatingModel(t, `{"tasks":[{"goal":"count the files"}]}`)
+	f := newHome(t, modelConfig(srv.URL)+"hooks:\n"+
+		"  subagent_start:\n    - command: "+string(dump)+"\n"+
+		"  subagent_stop:\n    - command: "+string(dump)+"\n"+
+		"  on_session_start:\n    - command: "+string(dump)+"\n")
+	f.vars["HERMES_ACCEPT_HOOKS"] = "1"
+	if code := Run(context.Background(), []string{"chat", "-q", "go"}, f.env()); code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, f.stderr.String())
+	}
+	entries, _ := os.ReadDir(dumpDir)
+	byEvent := map[string][]map[string]any{}
+	for _, e := range entries {
+		data, _ := os.ReadFile(filepath.Join(dumpDir, e.Name()))
+		var p map[string]any
+		if err := json.Unmarshal(data, &p); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		name := p["hook_event_name"].(string)
+		byEvent[name] = append(byEvent[name], p)
+	}
+	if len(byEvent["subagent_start"]) != 1 || len(byEvent["subagent_stop"]) != 1 || len(byEvent["on_session_start"]) != 2 {
+		t.Fatalf("events = %v", byEvent)
+	}
+	start, stop := byEvent["subagent_start"][0], byEvent["subagent_stop"][0]
+	sx, px := start["extra"].(map[string]any), stop["extra"].(map[string]any)
+	parent := start["session_id"]
+	child := sx["child_session_id"]
+	if parent == "" || child == nil || child == parent || stop["session_id"] != parent || px["child_session_id"] != child {
+		t.Fatalf("ids: start %v / %v, stop %v / %v", parent, child, stop["session_id"], px["child_session_id"])
+	}
+	if sx["child_goal"] != "count the files" || sx["child_role"] != "leaf" || !strings.HasPrefix(sx["child_subagent_id"].(string), "sa-0-") {
+		t.Errorf("start extra = %v", sx)
+	}
+	if px["child_summary"] != "child summary" || px["child_status"] != "completed" {
+		t.Errorf("stop extra = %v", px)
+	}
+	sessions := map[any]any{}
+	for _, p := range byEvent["on_session_start"] {
+		sessions[p["session_id"]] = p["extra"].(map[string]any)["platform"]
+	}
+	if sessions[parent] != "cli" || sessions[child] != "cli" {
+		t.Errorf("on_session_start sessions/platforms = %v", sessions)
 	}
 }

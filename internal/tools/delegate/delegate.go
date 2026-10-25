@@ -54,6 +54,8 @@ type Outcome struct {
 	Usage    llm.Usage
 	Model    string
 	Messages []llm.Message
+	// SessionID is the child's session row, empty when nothing persists.
+	SessionID string
 	// Err is nil on success; ErrBudget, a context error or a failure.
 	Err error
 }
@@ -70,6 +72,9 @@ type Options struct {
 	MaxChildren     int
 	MaxSummaryChars int
 	Now             func() time.Time
+	// Stopped, when set, sees each child's final result entry in task
+	// order once the batch is done, as upstream fires subagent_stop.
+	Stopped func(ctx context.Context, t Task, out Outcome, entry map[string]any)
 }
 
 // Tool builds delegate_task.
@@ -200,19 +205,23 @@ func (o Options) handle(ctx context.Context, raw json.RawMessage) (string, error
 	}
 	start := o.Now()
 	entries := make([]map[string]any, len(tasks))
+	outcomes := make([]Outcome, len(tasks))
 	var wg sync.WaitGroup
 	for i, t := range tasks {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			began := o.Now()
-			out := o.Run(ctx, t)
-			entries[i] = resultEntry(t.Index, out, seconds(o.Now().Sub(began)))
+			outcomes[i] = o.Run(ctx, t)
+			entries[i] = resultEntry(t.Index, outcomes[i], seconds(o.Now().Sub(began)))
 		}()
 	}
 	wg.Wait()
-	for _, e := range entries {
+	for i, e := range entries {
 		capSummary(e, o.MaxSummaryChars)
+		if o.Stopped != nil {
+			o.Stopped(ctx, tasks[i], outcomes[i], e)
+		}
 	}
 	data, err := json.Marshal(map[string]any{"results": entries, "total_duration_seconds": seconds(o.Now().Sub(start))})
 	if err != nil {
@@ -301,6 +310,36 @@ func toolTrace(msgs []llm.Message) []map[string]any {
 		}
 	}
 	return trace
+}
+
+// StopHistory is upstream _subagent_stop_tool_call_history: the
+// metadata-only tool history of a result entry's tool_trace.
+func StopHistory(entry map[string]any) []map[string]any {
+	trace, _ := entry["tool_trace"].([]map[string]any)
+	history := []map[string]any{}
+	for _, item := range trace {
+		name, _ := item["tool"].(string)
+		if name == "" {
+			name = "unknown"
+		}
+		if r := []rune(name); len(r) > 256 {
+			name = string(r[:256])
+		}
+		status, _ := item["status"].(string)
+		if status != "ok" && status != "error" {
+			status = "unknown"
+		}
+		in, _ := item["args_bytes"].(int)
+		out, _ := item["result_bytes"].(int)
+		summary, _ := item["input_summary"].(map[string]any)
+		if summary == nil {
+			summary = map[string]any{"argument_keys": []string{}, "targets": map[string]any{}}
+		}
+		history = append(history, map[string]any{
+			"tool_name": name, "tool_input": summary, "input_bytes": max(in, 0), "output_bytes": max(out, 0), "status": status,
+		})
+	}
+	return history
 }
 
 // looksLikeError is upstream _looks_like_error_output.

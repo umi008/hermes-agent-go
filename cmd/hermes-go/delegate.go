@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/agent"
@@ -20,6 +23,10 @@ import (
 // so a subagent records its parent as upstream parent_session_id.
 type parentSessionKey struct{}
 
+// platformKey carries the calling session's platform, which its children
+// report to lifecycle hooks as upstream's inherited platform.
+type platformKey struct{}
+
 // sessionScoped tags each tool call's context with its session id.
 type sessionScoped struct {
 	agent.ToolExecutor
@@ -27,6 +34,7 @@ type sessionScoped struct {
 }
 
 func (e sessionScoped) Execute(ctx context.Context, call llm.ToolCall) (string, error) {
+	ctx = context.WithValue(ctx, platformKey{}, e.s.source)
 	return e.ToolExecutor.Execute(context.WithValue(ctx, parentSessionKey{}, e.s.id), call)
 }
 
@@ -95,6 +103,7 @@ func (rt *chatRuntime) withDelegation() error {
 		Run: func(ctx context.Context, t delegate.Task) delegate.Outcome {
 			return rt.runChild(ctx, t, childRoute, children)
 		},
+		Stopped: rt.subagentStopped,
 	}))
 	if err != nil {
 		return err
@@ -151,6 +160,9 @@ func (rt *chatRuntime) runChild(ctx context.Context, t delegate.Task, route agen
 	if rec != nil {
 		id = rec.id
 	}
+	platform, _ := ctx.Value(platformKey{}).(string)
+	lc := rt.lifecycle(func() string { return id }, platform)
+	lc.SubagentStart(ctx, hooks.Subagent{ParentSessionID: parent, SessionID: id, ID: subagentID(t.Index), Goal: t.Goal})
 	var exec agent.ToolExecutor = reg
 	if len(rt.hookSpecs) > 0 {
 		exec = hooks.Wrap(reg, hooks.Options{
@@ -179,6 +191,7 @@ func (rt *chatRuntime) runChild(ctx context.Context, t delegate.Task, route agen
 		System:     []string{childSystemPrompt(t, rt.cwd, prompt.ProjectContext(rt.cwd, maxChars, rt.logger))},
 		CacheTTL:   cacheTTL(rt.cfg),
 		MaxTurns:   maxTurns,
+		Hooks:      lc.Turns(),
 		Logger:     rt.logger,
 		OnMessage:  func(m llm.Message) { rec.message(ctx, m) },
 		OnEvent: func(e agent.Event) {
@@ -208,7 +221,36 @@ func (rt *chatRuntime) runChild(ctx context.Context, t delegate.Task, route agen
 	default:
 		rec.end("completed")
 	}
-	return delegate.Outcome{Text: text, Turns: res.Turns, Usage: usage, Model: route.Model, Messages: history, Err: err}
+	return delegate.Outcome{Text: text, Turns: res.Turns, Usage: usage, Model: route.Model, Messages: history, Err: err, SessionID: id}
+}
+
+// lifecycle builds the lifecycle hooks of one session, nil without hooks.
+func (rt *chatRuntime) lifecycle(sessionID func() string, platform string) *hooks.Lifecycle {
+	if len(rt.hookSpecs) == 0 {
+		return nil
+	}
+	return hooks.NewLifecycle(hooks.Options{
+		Specs: rt.hookSpecs, Runner: rt.hookRunner, SessionID: sessionID, Cwd: rt.cwd, Profile: rt.f.profile,
+	}, platform)
+}
+
+// subagentStopped fires subagent_stop with a child's capped result entry.
+func (rt *chatRuntime) subagentStopped(ctx context.Context, _ delegate.Task, out delegate.Outcome, entry map[string]any) {
+	lc := rt.lifecycle(nil, "")
+	if lc == nil {
+		return
+	}
+	parent, _ := ctx.Value(parentSessionKey{}).(string)
+	secs, _ := entry["duration_seconds"].(float64)
+	lc.SubagentStop(ctx, hooks.Subagent{ParentSessionID: parent, SessionID: out.SessionID},
+		entry["summary"], entry["status"], delegate.StopHistory(entry), int64(secs*1000))
+}
+
+// subagentID is upstream's child_subagent_id, "sa-<index>-<8 hex>".
+func subagentID(index int) string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return "sa-" + strconv.Itoa(index) + "-" + hex.EncodeToString(b[:])
 }
 
 // lastAssistantText is the last non-empty assistant text, upstream's

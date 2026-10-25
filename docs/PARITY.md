@@ -80,9 +80,9 @@ Update the Status column as verticals land. Upstream paths are relative to
 | MCP client over stdio | done | `tools/mcp_tool.py:160` |
 | MCP client over streamable HTTP | done | `tools/mcp_tool.py:162-164` |
 | MCP SSE transport | done | `tools/mcp_tool*.py` |
-| Shell hooks (`hooks:` config) | done (`pre_tool_call`, `post_tool_call`) | `agent/shell_hooks.py` |
+| Shell hooks (`hooks:` config) | done (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`, `subagent_start`, `subagent_stop`) | `agent/shell_hooks.py` |
 | MCP sampling, OAuth, resources and prompts tools | later | `tools/mcp_tool*.py` |
-| Other shell hook events | later | `agent/shell_hooks.py` |
+| Other shell hook events (`pre_api_request`, `pre_compress`, `pre_verify`, gateway and approval events, ...) | later | `agent/shell_hooks.py` |
 | Python plugin system | out (no Python plugins in Go) | `hermes_cli/plugins.py` |
 
 ## Interfaces (V5)

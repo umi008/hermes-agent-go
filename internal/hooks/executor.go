@@ -166,15 +166,20 @@ func observerFields(result string) (string, any, any) {
 	return "ok", nil, nil
 }
 
-// payload is upstream _serialize_payload, keys in wire order.
 func (e *executor) payload(event, tool string, args map[string]any, extra object) []byte {
 	var input any
 	if args != nil {
 		input = args
 	}
+	return payload(event, tool, input, e.o.SessionID(), e.o.Cwd, e.o.Profile, extra)
+}
+
+// payload is upstream _serialize_payload, keys in wire order. A nil tool
+// or input is JSON null, as on events without a tool.
+func payload(event string, tool, input any, sessionID, cwd, profile string, extra object) []byte {
 	data, _ := object{
 		{"hook_event_name", event}, {"tool_name", tool}, {"tool_input", input},
-		{"session_id", e.o.SessionID()}, {"cwd", e.o.Cwd}, {"profile", e.o.Profile}, {"extra", extra},
+		{"session_id", sessionID}, {"cwd", cwd}, {"profile", profile}, {"extra", extra},
 	}.MarshalJSON()
 	return data
 }

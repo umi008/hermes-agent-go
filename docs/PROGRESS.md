@@ -75,7 +75,7 @@ compatibility with the Hermes home where practical.
   [odd/tasks/v4-extensibility.md](../odd/tasks/v4-extensibility.md).
   - `internal/skills`: SKILL.md discovery under `<hermes>/skills` and `skills.external_dirs`, `skills_list`, `skill_view`, and the prompt index, matched to upstream output on a fixture.
   - `internal/tools/mcpclient`: MCP over stdio, streamable HTTP and SSE on the official Go SDK; tools register as `mcp__<server>__<tool>` in toolset `mcp-<server>`, with upstream schema normalization, include/exclude filters, timeouts, a safe stdio env and credential redaction.
-  - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
+  - `internal/hooks`: `pre_tool_call` and `post_tool_call` shell hooks, plus the lifecycle events `pre_llm_call` (its `context` rides the user message sent to the model), `post_llm_call`, `on_session_start`, per-turn `on_session_end`, `subagent_start` and `subagent_stop`, with the upstream stdin JSON, block/modify/approve directives, exit code 2, `fail_closed`, matchers and timeouts; outcomes match 100 upstream verdicts.
   - `cmd/hermes-go`: `skills.*`, `mcp_servers` and `hooks:` config; `chat --accept-hooks`.
 
 - **V5 Interfaces (2026-10-24, on `dev`).** Feature doc:
@@ -121,7 +121,7 @@ compatibility with the Hermes home where practical.
 
 - Skills: `skill_manage` writes them from interactive sessions (V5); `chat -q` still sees them read-only, as upstream. No project-tier or plugin skills, no `platform_disabled`, no inline shell, no usage counters.
 - MCP: no resources or prompts utility tools, no reconnect or backoff, no OAuth, no sampling, no const-union schema collapse, no server-name toolset alias. Images and audio become a text notice instead of a cached file. Globs use `path.Match`, which differs from `fnmatch` on `/`.
-- Hooks: only `pre_tool_call` and `post_tool_call` fire; other valid events are logged and skipped. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
+- Hooks: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`, `subagent_start` and `subagent_stop` fire; other valid events are logged and skipped. `task_id`, `turn_id`, `parent_turn_id` and `sender_id` are empty. `pre_llm_call` context is not spilled to disk when oversized, and the injected text is not persisted, so a resumed session replays the typed message. `subagent_stop` does not redact the child summary. No interrupted `on_session_end` at shutdown. No TTY consent prompt and no allowlist writes: a hook runs with `--accept-hooks`, `HERMES_ACCEPT_HOOKS`, `hooks_auto_accept`, or an approval already in upstream's `shell-hooks-allowlist.json`. An `approve` directive passes only when approvals are off or `single_query_mode: approve`. Matchers use RE2, not Python `re`. A timeout kills the hook process, not its process tree. No `hermes hooks` subcommands.
 
 ## Known V3 gaps (deliberate, tracked)
 
@@ -151,7 +151,7 @@ compatibility with the Hermes home where practical.
 
 ## Next
 
-- V7 remaining tasks, in order: T4 other shell hook events, T5 MCP resources/prompts tools and reconnect, T6 API `/v1/responses`, `/v1/runs`, `/api/sessions`, T7 smart approval, T8 TUI canonical wire, T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
+- V7 remaining tasks, in order: T5 MCP resources/prompts tools and reconnect, T6 API `/v1/responses`, `/v1/runs`, `/api/sessions`, T7 smart approval, T8 TUI canonical wire, T9 Retry-After and `max_tokens` continuation, T10 fuzzy `patch` strategies and `.gitignore` in `search_files`.
 - Rows marked `out` in PARITY stay out unless the owner reopens them.
 - Merge `dev` into `main` and tag a release when the owner approves.
 
