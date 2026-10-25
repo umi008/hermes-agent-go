@@ -108,6 +108,9 @@ type Options struct {
 	// Hooks, when set, observe each turn; see TurnHooks.
 	Hooks  TurnHooks
 	Logger *slog.Logger
+	// History seeds the conversation with prior messages, as an API client
+	// replaying its transcript. They are copied and never sent to OnMessage.
+	History []llm.Message
 }
 
 // Result summarizes one Run.
@@ -145,7 +148,8 @@ func New(o Options) *Agent {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	a := &Agent{opts: o}
+	a := &Agent{opts: o, history: append([]llm.Message(nil), o.History...)}
+	a.opts.History = nil
 	a.fallback.active = a.primary()
 	return a
 }

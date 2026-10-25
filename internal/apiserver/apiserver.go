@@ -13,11 +13,14 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/llm"
@@ -30,6 +33,13 @@ type Reply struct {
 	// Stop is the normalized provider stop reason (llm.StopEnd,
 	// llm.StopMaxTokens, ...), mapped to OpenAI's finish_reason.
 	Stop string
+	// Turn is this turn's assistant and tool messages, in order, after the
+	// user message.
+	Turn []llm.Message
+	// History is the transcript a follow-up turn replays: the seeded history,
+	// the user message and Turn, or the compacted transcript when the turn
+	// compressed the context.
+	History []llm.Message
 }
 
 // Session is one conversation. Run sends one user message and streams its text
@@ -42,13 +52,38 @@ type Session interface {
 	End(reason string)
 }
 
+// ToolEvent reports a tool call starting (Done false) or finishing.
+type ToolEvent struct {
+	Done    bool
+	Call    llm.ToolCall
+	Output  string
+	IsError bool
+}
+
+// SessionOptions opens one conversation.
+type SessionOptions struct {
+	// Source is the upstream session source ("api", "api_server").
+	Source string
+	// Out receives the streamed text; nil discards it.
+	Out io.Writer
+	// ID continues the stored session with that id; empty opens a new one.
+	ID string
+	// History seeds the conversation with prior messages.
+	History []llm.Message
+	// Instructions is an ephemeral system prompt layered on the core one
+	// for this session only.
+	Instructions string
+	// OnTool, when set, sees every tool call start and finish.
+	OnTool func(ToolEvent)
+}
+
 // Backend opens one session per HTTP request.
 type Backend interface {
 	// Model is the model id the server advertises and echoes.
 	Model() string
-	// NewSession opens a conversation whose streamed text goes to out. A nil
-	// session is a wiring error and answers 500.
-	NewSession(ctx context.Context, source string, out io.Writer) Session
+	// NewSession opens a conversation. A nil session is a wiring error and
+	// answers 500.
+	NewSession(ctx context.Context, o SessionOptions) Session
 }
 
 // Config wires the server.
@@ -67,6 +102,12 @@ type Config struct {
 	Now func() time.Time
 	// Ready, when set, is called with the bound address before serving.
 	Ready func(addr string)
+	// MaxConcurrentRuns caps in-flight agent runs, as upstream
+	// gateway.api_server.max_concurrent_runs; zero disables the cap.
+	MaxConcurrentRuns int
+	// Responses keeps the stored /v1/responses records. Nil keeps them in
+	// memory for the server's lifetime.
+	Responses *ResponseStore
 }
 
 // Server is the OpenAI-compatible HTTP layer.
@@ -78,6 +119,10 @@ type Server struct {
 	now     func() time.Time
 	ready   func(addr string)
 	handler http.Handler
+
+	maxRuns   int
+	inflight  atomic.Int64
+	responses *ResponseStore
 }
 
 // New builds the server. Call Serve to bind it, or Handler to embed it.
@@ -89,12 +134,18 @@ func New(cfg Config) *Server {
 		logger:  cfg.Logger,
 		now:     cfg.Now,
 		ready:   cfg.Ready,
+		maxRuns: max(cfg.MaxConcurrentRuns, 0),
+
+		responses: cfg.Responses,
 	}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.responses == nil {
+		s.responses = MemoryResponseStore()
 	}
 	s.handler = s.routes()
 	return s
@@ -141,6 +192,9 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /v1/models", s.authenticated(http.HandlerFunc(s.handleModels)))
 	mux.Handle("POST /v1/chat/completions", s.authenticated(http.HandlerFunc(s.handleChat)))
+	mux.Handle("POST /v1/responses", s.authenticated(http.HandlerFunc(s.handleResponses)))
+	mux.Handle("GET /v1/responses/{id}", s.authenticated(http.HandlerFunc(s.handleGetResponse)))
+	mux.Handle("DELETE /v1/responses/{id}", s.authenticated(http.HandlerFunc(s.handleDeleteResponse)))
 	return s.logRequests(mux)
 }
 
@@ -235,6 +289,51 @@ func writeError(w http.ResponseWriter, status int, typ, code, message string) {
 	var body errorBody
 	body.Error.Message, body.Error.Type, body.Error.Code = message, typ, code
 	writeJSON(w, status, body)
+}
+
+// openAIError is upstream _openai_error: the envelope with a param slot. A
+// nil code encodes as null.
+type openAIError struct {
+	Error struct {
+		Message string  `json:"message"`
+		Type    string  `json:"type"`
+		Param   *string `json:"param"`
+		Code    *string `json:"code"`
+	} `json:"error"`
+}
+
+// writeAPIError is upstream _error_response; an empty code encodes as null.
+func writeAPIError(w http.ResponseWriter, status int, typ, code, message string) {
+	var body openAIError
+	body.Error.Message, body.Error.Type = message, typ
+	if code != "" {
+		body.Error.Code = &code
+	}
+	writeJSON(w, status, body)
+}
+
+// writeInvalid is upstream _invalid_request: 400 with the bare {message,
+// type} envelope.
+func writeInvalid(w http.ResponseWriter, message string) {
+	writeJSON(w, http.StatusBadRequest, map[string]map[string]string{
+		"error": {"message": message, "type": "invalid_request_error"},
+	})
+}
+
+// admit reserves one agent run under the concurrency cap. It answers 429 and
+// returns false when the cap is reached; otherwise the caller must call the
+// returned release once the run ends.
+func (s *Server) admit(w http.ResponseWriter) (release func(), ok bool) {
+	n := s.inflight.Add(1)
+	if s.maxRuns > 0 && n > int64(s.maxRuns) {
+		s.inflight.Add(-1)
+		w.Header().Set("Retry-After", "1")
+		writeAPIError(w, http.StatusTooManyRequests, "rate_limit_error", "rate_limit_exceeded",
+			fmt.Sprintf("Too many concurrent runs (max %d)", s.maxRuns))
+		return nil, false
+	}
+	var once sync.Once
+	return func() { once.Do(func() { s.inflight.Add(-1) }) }, true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

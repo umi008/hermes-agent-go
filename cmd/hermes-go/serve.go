@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/umi008/hermes-agent-go/internal/agent"
@@ -89,7 +90,30 @@ func runServe(ctx context.Context, f serveFlags, env Env) error {
 		case <-ctx.Done():
 		}
 	}()
-	return newAPIServer(rt, f.addr, key, logger).Serve(ctx)
+	responses, err := apiserver.OpenResponseStore(ctx, responseStorePath(rt.hermes))
+	if err != nil {
+		logger.Warn("response store unavailable; stored responses live in memory", "err", err)
+		responses = nil
+	} else {
+		defer func() { _ = responses.Close() }()
+	}
+	return newAPIServer(rt, f.addr, key, logger, responses).Serve(ctx)
+}
+
+// responseStorePath is the Go port's own /v1/responses store, next to its
+// state.db; upstream keeps response_store.db under HERMES_HOME.
+func responseStorePath(hermes string) string {
+	return filepath.Join(hermes, "hermes-go", "response_store.db")
+}
+
+// maxConcurrentRuns is upstream gateway.api_server.max_concurrent_runs:
+// default 10, 0 disables the cap, negatives count as 0.
+func maxConcurrentRuns(cfg *config.Config) int {
+	n, ok := cfg.Int("gateway", "api_server", "max_concurrent_runs")
+	if !ok {
+		return 10
+	}
+	return max(n, 0)
 }
 
 // apiKey resolves the bearer token: api_server.api_key from config.yaml wins,
@@ -119,13 +143,15 @@ func serveAuth(addr, key string, logger *slog.Logger) error {
 
 // newAPIServer builds the HTTP layer over the shared chat runtime: one session
 // per request, its text streamed to the response, and no REPL session touched.
-func newAPIServer(rt *chatRuntime, addr, key string, logger *slog.Logger) *apiserver.Server {
+func newAPIServer(rt *chatRuntime, addr, key string, logger *slog.Logger, responses *apiserver.ResponseStore) *apiserver.Server {
 	return apiserver.New(apiserver.Config{
-		Backend: runtimeBackend{rt: rt},
-		APIKey:  key,
-		Addr:    addr,
-		Logger:  logger,
-		Now:     rt.env.Now,
+		Backend:           runtimeBackend{rt: rt},
+		APIKey:            key,
+		Addr:              addr,
+		Logger:            logger,
+		Now:               rt.env.Now,
+		MaxConcurrentRuns: maxConcurrentRuns(rt.cfg),
+		Responses:         responses,
 		Ready: func(bound string) {
 			_, _ = fmt.Fprintf(rt.env.Stderr, "hermes-go: api server listening on http://%s\n", bound)
 		},
@@ -138,8 +164,22 @@ type runtimeBackend struct{ rt *chatRuntime }
 
 func (b runtimeBackend) Model() string { return b.rt.ep.Model }
 
-func (b runtimeBackend) NewSession(ctx context.Context, source string, out io.Writer) apiserver.Session {
-	return runtimeSession{s: b.rt.newSession(ctx, source, out)}
+func (b runtimeBackend) NewSession(ctx context.Context, o apiserver.SessionOptions) apiserver.Session {
+	spec := sessionSpec{source: o.Source, out: o.Out, id: o.ID, history: o.History, instructions: o.Instructions}
+	if o.OnTool != nil {
+		spec.observe = func(e agent.Event) {
+			if e.ToolCall == nil {
+				return
+			}
+			switch e.Kind {
+			case agent.EventToolStart:
+				o.OnTool(apiserver.ToolEvent{Call: *e.ToolCall})
+			case agent.EventToolResult:
+				o.OnTool(apiserver.ToolEvent{Done: true, Call: *e.ToolCall, Output: e.Text, IsError: e.IsError})
+			}
+		}
+	}
+	return runtimeSession{s: b.rt.openSession(ctx, spec)}
 }
 
 // runtimeSession is one API request's conversation.
@@ -149,12 +189,15 @@ func (s runtimeSession) ID() string { return s.s.id }
 
 func (s runtimeSession) Run(ctx context.Context, input string) (apiserver.Reply, error) {
 	res, err := s.s.run(ctx, input)
+	history, turn := s.s.transcript()
+	reply := apiserver.Reply{Text: res.Text, Usage: res.Usage, Stop: res.StopReason, Turn: turn, History: history}
 	if errors.Is(err, agent.ErrMaxTurns) {
 		// Upstream ships a budget-exhausted turn as a soft partial: the text it
 		// managed plus finish_reason "length", not a transport error.
-		return apiserver.Reply{Text: res.Text, Usage: res.Usage, Stop: llm.StopMaxTokens}, nil
+		reply.Stop = llm.StopMaxTokens
+		return reply, nil
 	}
-	return apiserver.Reply{Text: res.Text, Usage: res.Usage, Stop: res.StopReason}, err
+	return reply, err
 }
 
 func (s runtimeSession) End(reason string) { s.s.end(reason) }

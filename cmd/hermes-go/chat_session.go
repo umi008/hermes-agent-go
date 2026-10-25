@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/umi008/hermes-agent-go/internal/agent"
@@ -31,6 +32,26 @@ type chatSession struct {
 	// observe, when set, receives every agent event; the TUI backend maps
 	// them to its session events.
 	observe func(agent.Event)
+	// seed is the history the session was opened with; turn collects the
+	// messages of the running turn and compressed notes a compaction, so the
+	// API servers can hand back the transcript to replay.
+	seed       []llm.Message
+	turn       []llm.Message
+	compressed bool
+}
+
+// sessionSpec opens a conversation. Only source is required.
+type sessionSpec struct {
+	source string
+	out    io.Writer
+	// observe sees every agent event before the session handles it.
+	observe func(agent.Event)
+	// id continues a stored session; empty mints a new id.
+	id string
+	// history seeds the agent with prior messages.
+	history []llm.Message
+	// instructions is an ephemeral system prompt tier for this session.
+	instructions string
 }
 
 // newSession opens a conversation: a fresh id, a recorder and an agent with a
@@ -38,19 +59,30 @@ type chatSession struct {
 // session source ("cli", "api", "telegram", "discord"); it also fills the
 // prompt's platform line.
 func (rt *chatRuntime) newSession(ctx context.Context, source string, out io.Writer) *chatSession {
-	return rt.newObservedSession(ctx, source, out, nil)
+	return rt.openSession(ctx, sessionSpec{source: source, out: out})
 }
 
 // newObservedSession is newSession with an observer that sees every agent
 // event before the session handles it.
 func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, out io.Writer, observe func(agent.Event)) *chatSession {
+	return rt.openSession(ctx, sessionSpec{source: source, out: out, observe: observe})
+}
+
+// openSession opens a conversation from spec.
+func (rt *chatRuntime) openSession(ctx context.Context, spec sessionSpec) *chatSession {
+	source, out := spec.source, spec.out
 	if out == nil {
 		out = io.Discard
 	}
 	started := rt.env.Now()
-	s := &chatSession{rt: rt, source: source, out: out, started: started, observe: observe}
+	s := &chatSession{rt: rt, source: source, out: out, started: started, observe: spec.observe,
+		seed: append([]llm.Message(nil), spec.history...)}
+	id := spec.id
+	if id == "" {
+		id = state.NewSessionID(started)
+	}
 	s.rec = newRecorder(ctx, rt.store, state.Session{
-		ID: state.NewSessionID(started), Source: source, Model: rt.ep.Model, Cwd: rt.cwd,
+		ID: id, Source: source, Model: rt.ep.Model, Cwd: rt.cwd,
 	}, rt.logger)
 	if s.rec != nil {
 		s.id = s.rec.id
@@ -89,13 +121,17 @@ func (rt *chatRuntime) newObservedSession(ctx context.Context, source string, ou
 		Provider:   rt.ep.Provider,
 		BaseURL:    rt.ep.BaseURL,
 		Fallbacks:  rt.fallbacks,
-		System:     sys.Tiers(),
+		System:     systemTiers(sys.Tiers(), spec.instructions),
+		History:    spec.history,
 		CacheTTL:   cacheTTL(rt.cfg),
 		MaxTurns:   maxTurns,
 		Hooks:      rt.lifecycle(func() string { return s.id }, source).Turns(),
 		Logger:     rt.logger,
-		OnMessage:  func(m llm.Message) { s.rec.message(ctx, m) },
-		OnEvent:    func(e agent.Event) { s.onEvent(ctx, e) },
+		OnMessage: func(m llm.Message) {
+			s.turn = append(s.turn, m)
+			s.rec.message(ctx, m)
+		},
+		OnEvent: func(e agent.Event) { s.onEvent(ctx, e) },
 	})
 	return s
 }
@@ -125,6 +161,8 @@ func (s *chatSession) onEvent(ctx context.Context, e agent.Event) {
 		s.observe(e)
 	}
 	switch {
+	case e.Kind == agent.EventCompress && e.Err == nil:
+		s.compressed = true
 	case e.Kind == agent.EventUsage:
 		s.usage.Add(e.Usage)
 		s.rec.usage(ctx, e.Usage)
@@ -140,7 +178,29 @@ func (s *chatSession) onEvent(ctx context.Context, e agent.Event) {
 // run sends one user message through the agent. Callers own the framing of the
 // reply, so a streamed response never gains a stray newline.
 func (s *chatSession) run(ctx context.Context, input string) (agent.Result, error) {
+	s.turn, s.compressed = nil, false
 	return s.agent.Run(ctx, input)
+}
+
+// transcript is the history a follow-up turn replays: the seed plus every
+// message recorded since, or the agent's own history after a compaction.
+// turn is the last turn's messages after its user message.
+func (s *chatSession) transcript() (history, turn []llm.Message) {
+	if len(s.turn) > 0 && s.turn[0].Role == llm.RoleUser {
+		turn = s.turn[1:]
+	}
+	if s.compressed {
+		return s.agent.History(), turn
+	}
+	return append(append([]llm.Message(nil), s.seed...), s.turn...), turn
+}
+
+// systemTiers appends an ephemeral instructions tier to the system prompt.
+func systemTiers(tiers []string, instructions string) []string {
+	if strings.TrimSpace(instructions) == "" {
+		return tiers
+	}
+	return append(tiers, instructions)
 }
 
 // history is the live session's conversation, empty when there is none.

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -61,7 +62,7 @@ func apiTestServerWith(t *testing.T, f *fakeEnv, key string, logger *slog.Logger
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.close)
-	srv := httptest.NewServer(newAPIServer(rt, "127.0.0.1:0", key, logger).Handler())
+	srv := httptest.NewServer(newAPIServer(rt, "127.0.0.1:0", key, logger, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -564,5 +565,105 @@ func TestServeFlags(t *testing.T) {
 	if f.addr != "127.0.0.1:9" || f.profile != "work" || f.model != "big" || f.provider != "custom" ||
 		f.toolsets != "web" || !f.verbose {
 		t.Errorf("parsed flags = %+v", f)
+	}
+}
+
+// TestAPIResponsesChainContinuesSession runs /v1/responses over the real
+// runtime: a chained request replays the stored transcript to the model,
+// continues the same stored session and layers its instructions on the
+// system prompt for that turn only.
+func TestAPIResponsesChainContinuesSession(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		n := len(bodies)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"reply `+strconv.Itoa(n)+`"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`+"\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(model.Close)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+
+	resp := apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"alpha"}`)
+	var first struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&first); err != nil || first.Status != "completed" {
+		t.Fatalf("first response %+v %v", first, err)
+	}
+	sid := resp.Header.Get("X-Hermes-Session-Id")
+	resp = apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"beta","instructions":"be terse","previous_response_id":"`+first.ID+`"}`)
+	if resp.StatusCode != http.StatusOK || sid == "" || resp.Header.Get("X-Hermes-Session-Id") != sid {
+		t.Fatalf("chained status %d session %q, want %q", resp.StatusCode, resp.Header.Get("X-Hermes-Session-Id"), sid)
+	}
+	mu.Lock()
+	second := bodies[1]
+	mu.Unlock()
+	for _, want := range []string{`"alpha"`, `"reply 1"`, `"beta"`, "be terse"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("chained model request lacks %s: %s", want, second)
+		}
+	}
+	if strings.Contains(bodies[0], "be terse") {
+		t.Error("instructions leaked into the first turn")
+	}
+	_, st := sessions(t, f)
+	if got := activeContents(t, st, sid); got != "alpha|reply 1|beta|reply 2" {
+		t.Errorf("session messages = %q", got)
+	}
+}
+
+// TestAPIResponsesToolItems checks the runtime hands the turn's tool calls
+// to /v1/responses: output items without streaming, item events with it.
+func TestAPIResponsesToolItems(t *testing.T) {
+	model, _ := toolCallModel(t, "no_such_tool", `{"a":1}`)
+	f := newHome(t, modelConfig(model.URL))
+	srv := apiTestServer(t, f, "")
+	resp := apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"go"}`)
+	raw, _ := io.ReadAll(resp.Body)
+	for _, want := range []string{`"type":"function_call","status":"completed","name":"no_such_tool","arguments":"{\"a\":1}","call_id":"c1"`,
+		`"type":"function_call_output","status":"completed","call_id":"c1"`, `"text":"done"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("response lacks %s: %s", want, raw)
+		}
+	}
+
+	model, _ = toolCallModel(t, "no_such_tool", `{"a":1}`)
+	f = newHome(t, modelConfig(model.URL))
+	srv = apiTestServer(t, f, "")
+	resp = apiDo(t, srv, "POST", "/v1/responses", "", `{"input":"go","stream":true}`)
+	raw, _ = io.ReadAll(resp.Body)
+	var events []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if name, ok := strings.CutPrefix(line, "event: "); ok {
+			events = append(events, name)
+		}
+	}
+	want := "response.created,response.output_item.added,response.output_item.done,response.output_item.added,response.output_item.done," +
+		"response.output_item.added,response.output_text.delta,response.output_text.done,response.output_item.done,response.completed"
+	if strings.Join(events, ",") != want || !strings.Contains(string(raw), `"name":"no_such_tool","call_id":"c1"`) {
+		t.Fatalf("events = %v\n%s", events, raw)
+	}
+}
+
+func TestMaxConcurrentRuns(t *testing.T) {
+	for yaml, want := range map[string]int{
+		"": 10,
+		"gateway:\n  api_server:\n    max_concurrent_runs: 3\n":  3,
+		"gateway:\n  api_server:\n    max_concurrent_runs: 0\n":  0,
+		"gateway:\n  api_server:\n    max_concurrent_runs: -4\n": 0,
+	} {
+		raw, err := config.Parse([]byte(yaml))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := maxConcurrentRuns(config.FromMap(raw)); got != want {
+			t.Errorf("%q: %d, want %d", yaml, got, want)
+		}
 	}
 }
