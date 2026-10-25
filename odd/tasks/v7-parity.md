@@ -44,7 +44,7 @@ Assumptions:
 | T7c config and runtime wiring | S7 | inline | done | fc88d5d |
 | T8 TUI canonical wire | S8 | inline | done | be16897, 600a8c0, ac26705, 9bb4a88 |
 | T9 Retry-After, max_tokens continuation | S9 | inline | done | c2b4d0d, ad69f48 |
-| T10 patch strategies, .gitignore | S10 | inline | done | see L16, L17, L18 |
+| T10 patch strategies, .gitignore | S10 | inline | done | 0fbb2dd, 02c83a4, 7d356e3 |
 
 ## Log
 
