@@ -226,7 +226,16 @@ enabled_toolsets, workdir
   - **Streaming** (`POST /api/sessions/{id}/chat/stream`): `text/event-stream` frames `event: <name>` plus one JSON `data:` line, every payload stamped `session_id`, `run_id`, `seq` (from 1) and `ts`. Events in order: `run.started` (user message and runtime), `message.started`, any `assistant.delta`, `tool.started`/`tool.completed`/`tool.failed`, `assistant.completed`, `run.completed`/`run.failed`/`run.cancelled` with `messages`, `usage` and `runtime`, then `done`. A `: keepalive` comment arrives every 10 s; a failure after the stream opened sends `error` before `done`.
   - **Run registry:** a streamed turn is pollable as `GET /v1/runs/{id}` (status `queued`, `running`, then terminal) and `POST /v1/runs/{id}/stop` cancels it; its live events stay on the chat response only.
 
-## 9. Other files (out of scope until needed)
+## 9. TUI gateway JSON-RPC
+
+`hermes-go tui` serves upstream's Ink client over `/api/ws?token=...`. The wire
+is the canonical one (the `session_authority` handshake, `runtime.describe`,
+`session.list`, `session.resume` and the `4001` + `data.reason` error contract);
+[TUI_PROTOCOL.md](TUI_PROTOCOL.md) documents every payload. What the port does
+not speak — the receipt ledger, event replay, pending admissions, skins and
+slash commands — is reported as zero or empty rather than faked.
+
+## 10. Other files (out of scope until needed)
 
 - **`auth.json`:** `{"version":1,"providers":{...}}`, guarded by `auth.lock` (`hermes_cli/auth.py:493,737`). The per-provider shapes are **UNVERIFIED**.
 - **`.anthropic_oauth.json`:** the Anthropic OAuth grant.
